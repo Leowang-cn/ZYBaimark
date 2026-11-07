@@ -14,6 +14,12 @@ async function submit() {
   loading.value = true;
   try {
     await api('/api/auth/login', { method: 'POST', body: { password: password.value } });
+  try {
+      await api('/api/auth/me');
+    } catch {
+      error.value = '口令正确，但浏览器没有保存登录状态。请检查是否用 HTTP 访问了要求 HTTPS 的站点，或浏览器禁用了 Cookie。';
+      return;
+    }
     const next = typeof route.query.next === 'string' && route.query.next.startsWith('/') ? route.query.next : '/tasks';
     router.replace(next);
   } catch (e) {

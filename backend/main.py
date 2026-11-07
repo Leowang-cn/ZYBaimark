@@ -106,12 +106,28 @@ class LoginIn(BaseModel):
     password: str = Field(max_length=200)
 
 
+def is_https(request: Request) -> bool:
+    if request.url.scheme == "https":
+        return True
+    peer = request.client.host if request.client else ""
+    cidrs = [c.strip() for c in get_settings().trusted_proxy_cidrs.split(",") if c.strip()]
+    try:
+        trusted = any(ipaddress.ip_address(peer) in ipaddress.ip_network(c, strict=False) for c in cidrs)
+    except ValueError:
+        trusted = False
+    return trusted and request.headers.get("x-forwarded-proto", "").split(",")[0].strip() == "https"
+
+
 @app.post("/api/auth/login", dependencies=[Depends(same_origin)])
 def app_login(body: LoginIn, request: Request, response: Response, db: Session = Depends(get_db)):
     if not login_limiter.allow(client_ip(request)):
         raise HTTPException(429, "尝试过于频繁，请稍后再试")
     if not check_password(body.password):
         raise HTTPException(401, "口令错误")
+    if get_settings().cookie_secure and not is_https(request):
+        # 浏览器会丢弃 HTTP 下的 Secure Cookie，登录看似成功却立即失效
+        raise HTTPException(400, "当前通过 HTTP 访问，但服务器配置了 COOKIE_SECURE=true，登录状态无法保存。"
+                                 "请改用 HTTPS 访问，或将 COOKIE_SECURE 设为 false（同时 APP_ENV=development）后重新部署")
     token = new_token()
     db.add(AppSession(token_hash=hash_token(token), expires_at=utcnow() + SESSION_TTL))
     db.query(AppSession).filter(AppSession.expires_at < utcnow()).delete()

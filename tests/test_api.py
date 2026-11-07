@@ -188,3 +188,15 @@ def test_cookie_extract():
 
     assert extract_cookie("a=1; ZYBIPSCAS=abc; b=2") == "ZYBIPSCAS=abc"
     assert extract_cookie("nothing") is None
+
+
+def test_secure_cookie_over_http_rejected(client):
+    from backend import config
+    object.__setattr__(config.settings, "cookie_secure", True)
+    try:
+        r = client.post("/api/auth/login", json={"password": "testpass123"})
+        assert r.status_code == 400 and "HTTPS" in r.json()["detail"]
+        r = client.post("/api/auth/login", json={"password": "testpass123"}, headers={"X-Forwarded-Proto": "https"})
+        assert r.status_code == 400  # 未配置可信代理时不信任该头
+    finally:
+        object.__setattr__(config.settings, "cookie_secure", False)
