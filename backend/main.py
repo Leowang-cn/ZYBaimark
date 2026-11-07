@@ -166,6 +166,24 @@ def capabilities():
     return {"qr_login": login_manager.qr_available, "qr_login_reason": login_manager.qr_unavailable_reason}
 
 
+class CookieCheckIn(BaseModel):
+    cookie_text: str = Field(max_length=20000)
+
+
+@app.post("/api/ctp/check", dependencies=Auth)
+def ctp_check(body: CookieCheckIn):
+    cookie = ctp.extract_cookie(body.cookie_text)
+    if not cookie:
+        return {"ok": False, "reason": "没有找到登录信息（ZYBIPSCAS），请确认复制的是完整的 Cookie"}
+    try:
+        info = ctp.check_login(cookie)
+    except ctp.CtpAuthError:
+        return {"ok": False, "reason": "登录已失效，请在内容生产系统重新登录后再复制"}
+    except ctp.CtpError as e:
+        raise HTTPException(502, str(e)) from e
+    return {"ok": True, "uname": info.get("uname") or ""}
+
+
 @app.get("/api/health")
 def health():
     try:

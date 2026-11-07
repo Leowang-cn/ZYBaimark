@@ -23,6 +23,8 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(wk.worker, "notify", lambda: None)
     from backend.ctp.login import login_manager
     monkeypatch.setattr(login_manager, "check_capability", lambda: None)
+    from backend.security import login_limiter
+    login_limiter.hits.clear()
     with TestClient(main.app) as c:
         yield c
 
@@ -238,3 +240,16 @@ def test_qr_unavailable_falls_back(client):
         assert r.status_code == 429 and "粘贴 Cookie" in r.json()["detail"]
     finally:
         login_manager.qr_available = None
+
+
+def test_ctp_check(client, monkeypatch):
+    from backend.ctp import client as ctp
+    login(client)
+    assert client.post("/api/ctp/check", json={"cookie_text": "abc"}).json()["ok"] is False
+    monkeypatch.setattr(ctp, "check_login", lambda c: {"uname": "zhangsan"})
+    assert client.post("/api/ctp/check", json={"cookie_text": "x=1; ZYBIPSCAS=t"}).json() == {"ok": True, "uname": "zhangsan"}
+
+    def expired(c):
+        raise ctp.CtpAuthError("x")
+    monkeypatch.setattr(ctp, "check_login", expired)
+    assert "失效" in client.post("/api/ctp/check", json={"cookie_text": "ZYBIPSCAS=t"}).json()["reason"]

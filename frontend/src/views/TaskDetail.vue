@@ -2,7 +2,7 @@
 import { inject, onMounted, onUnmounted, ref } from 'vue';
 import { api, fmtTs, STAGE_LABEL, STATUS_LABEL } from '../api';
 import CtpLogin from '../components/CtpLogin.vue';
-import PromptEditor from '../components/PromptEditor.vue';
+import PromptDrawer from '../components/PromptDrawer.vue';
 
 const props = defineProps({ id: String });
 const toast = inject('toast');
@@ -126,19 +126,8 @@ async function reresolve(v, cred) {
       </div>
     </template>
 
-    <div v-if="regenOpen" class="modal-mask" @click.self="regenOpen = false">
-      <div class="modal">
-        <header>修改规则并全部重新生成</header>
-        <div class="body">
-          <p class="muted small">已有的音频与转写会复用，只重新调用 AI。每个视频会产生一个新版本，已人工修改的版本不会被覆盖。</p>
-          <PromptEditor v-model="regenPrompt" :default-text="defaultPrompt" :rows="20" />
-        </div>
-        <footer>
-          <button @click="regenOpen = false">取消</button>
-          <button class="primary" :disabled="regenPrompt.length < 20" @click="regenAll">开始重新生成</button>
-        </footer>
-      </div>
-    </div>
+    <PromptDrawer v-model:open="regenOpen" v-model="regenPrompt" :default-text="defaultPrompt"
+      title="修改规则并重新生成" hint="对本任务全部视频重新生成，每个视频产生新版本；已人工修改的版本不会被覆盖。" confirm-text="开始重新生成" @confirm="regenAll" />
 
     <div v-if="resolveFor" class="modal-mask" @click.self="resolveFor = null">
       <div class="modal" style="width: min(560px, 94vw)">

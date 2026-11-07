@@ -1,7 +1,7 @@
 <script setup>
 import { computed, inject, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { api, fmtTs, parseTs, STAGE_LABEL } from '../api';
-import PromptEditor from '../components/PromptEditor.vue';
+import PromptDrawer from '../components/PromptDrawer.vue';
 
 const props = defineProps({ id: String });
 const toast = inject('toast');
@@ -392,19 +392,8 @@ function onTrackClick(e) {
       </section>
     </div>
 
-    <div v-if="regenOpen" class="modal-mask" @click.self="regenOpen = false">
-      <div class="modal">
-        <header>修改规则并重新生成</header>
-        <div class="body">
-          <p class="muted small">已预填当前查看版本（v{{ gen?.version_no }}）所用的规则。重新生成会复用音频和转写，只重新调用 AI，产生新版本；当前版本的人工修改不会被覆盖。</p>
-          <PromptEditor v-model="regenPrompt" :default-text="defaultPrompt" :rows="20" />
-        </div>
-        <footer>
-          <button @click="regenOpen = false">取消</button>
-          <button class="primary" :disabled="regenPrompt.length < 20" @click="regen">开始重新生成</button>
-        </footer>
-      </div>
-    </div>
+    <PromptDrawer v-model:open="regenOpen" v-model="regenPrompt" :default-text="defaultPrompt"
+      title="修改规则并重新生成" hint="复用已有音频与转写，只重新调用 AI，生成新版本；当前版本的人工修改不会被覆盖。" confirm-text="开始重新生成" @confirm="regen" />
   </div>
 </template>
 
