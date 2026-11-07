@@ -268,38 +268,8 @@ def save_default_prompt(body: PromptIn, db: Session = Depends(get_db)):
 
 # ---------------- 扫码登录 ----------------
 
-# 暂停使用，恢复时取消以下注释
-# @app.post("/api/login-sessions", dependencies=Auth)
-# def start_login():
-#     try:
-#         return login_manager.start().public()
-#     except RuntimeError as e:
-#         raise HTTPException(429, str(e)) from e
-#
-#
-# @app.get("/api/login-sessions/{sid}", dependencies=Auth)
-# def login_status(sid: str):
-#     sess = login_manager.get(sid)
-#     if not sess:
-#         raise HTTPException(404, "登录会话不存在")
-#     return sess.public()
-#
-#
-# @app.post("/api/login-sessions/{sid}/refresh", dependencies=Auth)
-# def login_refresh(sid: str):
-#     sess = login_manager.get(sid)
-#     if not sess or sess.status != "pending":
-#         raise HTTPException(409, "当前状态不能刷新二维码")
-#     sess.refresh_flag.set()
-#     return {"ok": True}
-#
-#
-# @app.delete("/api/login-sessions/{sid}", dependencies=Auth)
-# def login_cancel(sid: str):
-#     sess = login_manager.get(sid)
-#     if sess:
-#         sess.cancel_flag.set()
-#     return {"ok": True}
+# 钉钉扫码登录暂停使用：原有 4 个扫码会话接口（创建/查询/刷新二维码/取消）已移除，
+# 恢复时可从提交 c2864a8 中的 backend/main.py 找回，并取消 ctp.login 相关注释。
 
 
 # ---------------- 任务 ----------------

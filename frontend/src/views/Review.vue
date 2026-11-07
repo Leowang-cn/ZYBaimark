@@ -2,6 +2,7 @@
 import { computed, inject, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { api, fmtTs, parseTs, STAGE_LABEL } from '../api';
 import RulesDrawer from '../components/RulesDrawer.vue';
+import { CONF_LABEL, PLAY_MODES, confidence, playStart, splitReasons } from '../review';
 
 const props = defineProps({ id: String });
 const toast = inject('toast');
@@ -25,7 +26,10 @@ const listEl = ref(null);
 let hls = null;
 let pollTimer = null;
 
+const playMode = ref(localStorage.getItem('playMode') || 'question');
+const expanded = ref({});
 watch(preroll, (v) => localStorage.setItem('preroll', String(Math.max(0, Number(v) || 0))));
+watch(playMode, (v) => localStorage.setItem('playMode', v));
 
 const marks = computed(() => (gen.value?.marks || []).filter((m) => showDeleted.value || !m.deleted));
 const liveMarks = computed(() => (gen.value?.marks || []).filter((m) => !m.deleted));
@@ -109,9 +113,22 @@ function togglePlay() {
   el.paused ? el.play().catch(() => {}) : el.pause();
 }
 
+const HOW_LABEL = { question: '问题开头', context: '问题前一句', fixed: '固定提前', fallback: '未匹配到问题，固定提前' };
+
+function startOf(m) {
+  const prev = liveMarks.value.filter((x) => x.id !== m.id && x.time_s < m.time_s - 0.5).at(-1);
+  return playStart(m, segments.value, { mode: playMode.value, preroll: Number(preroll.value) || 0, prevTime: prev?.time_s ?? null });
+}
+const startSegId = computed(() => (selected.value ? startOf(selected.value).segId : null));
+
+function playTitle(m) {
+  const st = startOf(m);
+  return `从 ${fmtTs(st.time).slice(3)} 开始播放（${HOW_LABEL[st.how]}）`;
+}
+
 function selectMark(m, play = true) {
   selectedId.value = m.id;
-  if (play) seek(m.time_s - (Number(preroll.value) || 0));
+  if (play) seek(startOf(m).time);
 }
 
 function scrollToSelected() {
@@ -348,6 +365,7 @@ function onTrackClick(e) {
             <span><i class="lg-dot" style="background:#f59e0b" /> 待确认</span>
             <span><i class="lg-dot" style="background:var(--ok)" /> 已确认</span>
             <span><i class="lg-cur" /> 当前播放位置</span>
+            <span title="右侧列表每题左侧色点，由程序校验结果推断"><i class="lg-dot" style="background:var(--ok)" /><i class="lg-dot" style="background:#eab308" /><i class="lg-dot" style="background:var(--danger)" /> 置信度 高/中/低</span>
           </div>
           <div class="track" @click="onTrackClick" title="点击跳转">
             <div class="cursor" :style="{ left: markLeft(currentTime) }" />
@@ -366,7 +384,14 @@ function onTrackClick(e) {
               <option :value="0.5">0.5x</option><option :value="0.75">0.75x</option><option :value="1">1x</option>
               <option :value="1.25">1.25x</option><option :value="1.5">1.5x</option><option :value="2">2x</option>
             </select>
-            <label class="small">提前 <input v-model.number="preroll" type="number" min="0" max="30" step="0.5" style="width: 56px" /> 秒播放</label>
+            <label class="small" title="点 ▶ 时从哪里开始播放：自动找到老师开始提问的那句话，便于连贯地听完整道题">起播
+              <select v-model="playMode" class="sm-select">
+                <option v-for="o in PLAY_MODES" :key="o.value" :value="o.value">{{ o.label }}</option>
+              </select>
+            </label>
+            <label class="small" :title="playMode === 'fixed' ? '' : '匹配不到问题开头时使用'">
+              {{ playMode === 'fixed' ? '提前' : '兜底提前' }} <input v-model.number="preroll" type="number" min="0" max="30" step="0.5" style="width: 56px" /> 秒
+            </label>
             <span class="spacer" />
             <button class="sm" :disabled="!selected" @click="setTimeToCurrent()">当前时间写入选中行</button>
             <button class="sm primary" :disabled="!gen" :title="`在当前时间新增，并用前后 ${draftWindow} 秒逐字稿让 AI 草拟问题和答案`" @click="addAtCurrent">以当前时间新增</button>
@@ -378,7 +403,8 @@ function onTrackClick(e) {
         <div class="panel transcript">
           <h2>逐字稿（当前时间前后 20 秒）</h2>
           <div v-if="!segments.length" class="muted small">逐字稿加载中或尚未生成</div>
-          <p v-for="s in nearbySegments" :key="s.id" class="seg" :class="{ active: currentTime >= s.start && currentTime < s.end }"
+          <p v-for="s in nearbySegments" :key="s.id" class="seg" :class="{ active: currentTime >= s.start && currentTime < s.end, start: s.id === startSegId }"
+            :title="s.id === startSegId ? '选中打点的起播句' : ''"
             @click="seek(s.start, false)">
             <span class="mono muted">{{ fmtTs(s.start).slice(3) }}</span> {{ s.text }}
           </p>
@@ -395,10 +421,11 @@ function onTrackClick(e) {
         </div>
         <div v-if="video.status === 'running' && !gen" class="muted">正在处理：{{ STAGE_LABEL[video.stage] || video.stage }}</div>
         <div ref="listEl" class="marks">
-          <div v-for="m in marks" :key="m.id" :data-id="m.id" class="mark"
-            :class="{ sel: m.id === selectedId, ok: m.confirmed, del: m.deleted }" @click="selectMark(m, false)">
+          <div v-for="m in marks" :key="m.id" :data-id="m.id" class="mark" :class="[`c-${confidence(m)}`, { sel: m.id === selectedId, ok: m.confirmed, del: m.deleted }]"
+            @click="selectMark(m, false)">
             <div class="row">
-              <button class="sm play" title="从该时间点（减去提前量）播放" @click.stop="selectMark(m)">▶</button>
+              <i class="conf" :title="CONF_LABEL[confidence(m)]" />
+              <button class="sm play" :title="playTitle(m)" @click.stop="selectMark(m)">▶</button>
               <input class="mono time" :value="timeDraft[m.id] ?? m.time" :disabled="m.deleted"
                 @input="timeDraft[m.id] = $event.target.value" @blur="saveTime(m)" @keydown.enter="$event.target.blur()" />
               <span v-if="m.source === 'manual'" class="tag">人工</span>
@@ -420,8 +447,15 @@ function onTrackClick(e) {
               <input class="a" :value="m.answer" placeholder="答案" :disabled="m.deleted"
                 @blur="saveText(m, 'answer', $event.target.value)" @keydown.enter="$event.target.blur()" />
             </div>
-            <div v-if="m.review_reason" class="small warn-text">⚠ {{ m.review_reason }}</div>
-            <div v-if="m.evidence && m.id === selectedId" class="small muted">答案依据：{{ m.evidence }}</div>
+            <template v-if="m.review_reason || m.evidence">
+              <a class="small muted toggle" @click.stop="expanded[m.id] = !expanded[m.id]">
+                {{ expanded[m.id] ? '收起分析' : `查看分析${splitReasons(m.review_reason).length ? `（${splitReasons(m.review_reason).length} 个疑点）` : ''}` }}
+              </a>
+              <div v-if="expanded[m.id]" class="small analysis">
+                <div v-for="(x, i) in splitReasons(m.review_reason)" :key="i" class="warn-text">· {{ x }}</div>
+                <div v-if="m.evidence" class="muted">答案依据：{{ m.evidence }}</div>
+              </div>
+            </template>
           </div>
           <div v-if="gen && !marks.length" class="muted">没有打点，可用“以当前时间新增”手动添加</div>
         </div>
@@ -476,5 +510,17 @@ function onTrackClick(e) {
 .mark .q { font-size: 13px; }
 .mark .a { flex: 1; height: 28px; }
 .warn-text { color: var(--warn); }
+.mark { border-left-width: 4px; }
+.mark.c-high { border-left-color: var(--ok); }
+.mark.c-mid { border-left-color: #eab308; }
+.mark.c-low { border-left-color: var(--danger); }
+.mark .conf { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; background: #cbd5e1; }
+.mark.c-high .conf { background: var(--ok); }
+.mark.c-mid .conf { background: #eab308; }
+.mark.c-low .conf { background: var(--danger); }
+.toggle { cursor: pointer; align-self: flex-start; }
+.toggle:hover { color: var(--primary); }
+.analysis { background: #f8fafc; border-radius: 6px; padding: 6px 8px; display: flex; flex-direction: column; gap: 2px; }
+.seg.start { box-shadow: inset 3px 0 0 var(--primary); }
 .drafting { color: var(--primary); }
 </style>
