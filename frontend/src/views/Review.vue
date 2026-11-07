@@ -1,7 +1,7 @@
 <script setup>
 import { computed, inject, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { api, fmtTs, parseTs, STAGE_LABEL } from '../api';
-import PromptDrawer from '../components/PromptDrawer.vue';
+import RulesDrawer from '../components/RulesDrawer.vue';
 
 const props = defineProps({ id: String });
 const toast = inject('toast');
@@ -428,7 +428,7 @@ function onTrackClick(e) {
       </section>
     </div>
 
-    <PromptDrawer v-model:open="regenOpen" v-model="regenPrompt" :default-text="defaultPrompt"
+    <RulesDrawer v-model:open="regenOpen" v-model="regenPrompt" :default-text="defaultPrompt"
       title="修改规则并重新生成" hint="复用已有音频与转写，只重新调用 AI，生成新版本；当前版本的人工修改不会被覆盖。" confirm-text="开始重新生成" @confirm="regen" />
   </div>
 </template>

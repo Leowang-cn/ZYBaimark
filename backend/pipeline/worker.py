@@ -5,6 +5,7 @@ import json
 import logging
 import shutil
 import threading
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 from sqlalchemy import func, select
@@ -19,8 +20,9 @@ from .media import PipelineError, detect_silences, extract_audio, probe, transcr
 log = logging.getLogger(__name__)
 
 
-def _key(video_id: int, name: str) -> str:
-    return f"videos/{video_id}/{name}"
+def _key(material_id: str, run_id: str, name: str) -> str:
+    # 对象键必须全局唯一：多个部署（本地/服务器）可能共用同一 COS 前缀，而各自数据库的视频编号都从 1 开始
+    return f"videos/{material_id}/{run_id}/{name}"
 
 
 def has_manual_edits(gen: Generation | None) -> bool:
@@ -125,10 +127,14 @@ class Worker:
             v.status, v.error = "running", ""
             session.commit()
             url, art = v.url, json.loads(v.artifacts_json or "{}")
+            material_id = v.material_id
             prompt = v.pending_prompt or v.task.prompt_text
             duration = v.duration_s
         work = s.data_dir / "work" / str(video_id)
         work.mkdir(parents=True, exist_ok=True)
+
+        run_id = art.get("run_id") or uuid.uuid4().hex[:12]
+        art["run_id"] = run_id
 
         def save_art(**kw):
             art.update(kw)
@@ -153,20 +159,20 @@ class Worker:
             if need_sil:
                 self._set(video_id, stage="silence")
                 sil = detect_silences(wav)
-                store.put_bytes(_key(video_id, "silences.json"), json.dumps(sil).encode(), "application/json")
-                save_art(silences=_key(video_id, "silences.json"))
+                store.put_bytes(_key(material_id, run_id, "silences.json"), json.dumps(sil).encode(), "application/json")
+                save_art(silences=_key(material_id, run_id, "silences.json"))
             if need_asr:
                 self._set(video_id, stage="asr")
                 tr = transcribe(wav, duration, work)
-                store.put_bytes(_key(video_id, "transcription.json"),
+                store.put_bytes(_key(material_id, run_id, "transcription.json"),
                                 json.dumps(tr, ensure_ascii=False).encode(), "application/json")
-                save_art(transcription=_key(video_id, "transcription.json"))
+                save_art(transcription=_key(material_id, run_id, "transcription.json"))
 
         tr = json.loads(store.get_bytes(art["transcription"]))
         sil = json.loads(store.get_bytes(art["silences"]))
         result = extract(prompt, tr, sil, duration, progress=lambda st: self._set(video_id, stage=st))
         self._set(video_id, stage="finalize")
-        rows = finalize(result["items"], tr, sil, duration)
+        rows = finalize(result["items"], tr, sil, duration, prompt)
         with dbm.SessionLocal() as session:
             v = session.get(Video, video_id)
             save_generation(session, v, prompt, result, rows)

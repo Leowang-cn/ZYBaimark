@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from . import db as dbm
+from . import rules
 from .config import ROOT, get_settings
 from .ctp import client as ctp
 from .ctp.login import login_manager
@@ -30,7 +31,6 @@ from .security import check_password, decrypt, encrypt, hash_token, login_limite
 log = logging.getLogger("app")
 SESSION_COOKIE = "mark_session"
 SESSION_TTL = timedelta(days=7)
-DEFAULT_PROMPT_FILE = ROOT / "prompts" / "default.md"
 FRONTEND_DIST = ROOT / "frontend" / "dist"
 
 
@@ -46,6 +46,14 @@ def ensure_data_dir(path) -> None:
     log.info("数据目录：%s", path.resolve())
 
 
+def seed_default_rules(session) -> None:
+    """首次启动写入内置默认规则；当前默认仍为旧版纯文本时，追加结构化版本（旧版本保留可回滚）。"""
+    cur = session.scalars(select(DefaultPrompt).order_by(DefaultPrompt.version.desc()).limit(1)).first()
+    if cur is None or not rules.is_structured(cur.content):
+        session.add(DefaultPrompt(version=(cur.version + 1) if cur else 1, content=rules.builtin_text()))
+        session.commit()
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -53,9 +61,7 @@ async def lifespan(_app: FastAPI):
     log.info("ACCESS_TOKEN：%s", "已配置" if get_settings().access_token else "未配置（仅能用口令登录）")
     dbm.init_db()
     with dbm.SessionLocal() as session:
-        if not session.scalar(select(DefaultPrompt.id).limit(1)):
-            session.add(DefaultPrompt(version=1, content=DEFAULT_PROMPT_FILE.read_text(encoding="utf-8")))
-            session.commit()
+        seed_default_rules(session)
     login_manager.check_capability()
     worker.start()
     yield
@@ -201,6 +207,34 @@ class PromptIn(BaseModel):
     content: str = Field(min_length=20, max_length=60000)
 
 
+def check_rules(text: str) -> None:
+    try:
+        rules.check_text(text)
+    except rules.RulesError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+class RenderIn(BaseModel):
+    content: str = Field(max_length=60000)
+    duration_s: float | None = Field(default=None, ge=0)
+
+
+@app.post("/api/prompts/render", dependencies=Auth)
+def render_rules(body: RenderIn):
+    """预览：把规则渲染为实际发送给模型的正文，并附系统内置说明。"""
+    try:
+        cfg = rules.load(body.content)
+    except rules.RulesError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"text": rules.render(cfg, body.duration_s), "system": rules.SYSTEM_DESCRIPTION,
+            "structured": isinstance(cfg, dict)}
+
+
+@app.get("/api/prompts/builtin", dependencies=Auth)
+def builtin_rules():
+    return {"content": rules.builtin_text()}
+
+
 def current_default(db: Session) -> DefaultPrompt:
     return db.scalars(select(DefaultPrompt).order_by(DefaultPrompt.version.desc()).limit(1)).first()
 
@@ -219,6 +253,7 @@ def default_versions(db: Session = Depends(get_db)):
 
 @app.put("/api/prompts/default", dependencies=Auth)
 def save_default_prompt(body: PromptIn, db: Session = Depends(get_db)):
+    check_rules(body.content)
     cur = current_default(db)
     if cur.content.strip() == body.content.strip():
         return {"version": cur.version, "unchanged": True}
@@ -294,6 +329,7 @@ def video_summary(v: Video) -> dict:
 
 @app.post("/api/tasks", dependencies=Auth)
 def create_task(body: TaskIn, db: Session = Depends(get_db)):
+    check_rules(body.prompt_text)
     s = get_settings()
     ids = parse_ids(body.material_ids)
     if not ids:
@@ -431,6 +467,7 @@ class RegenIn(BaseModel):
 
 
 def queue_regen(v: Video, prompt: str) -> None:
+    check_rules(prompt)
     if v.status in {"queued", "running"}:
         raise HTTPException(409, f"视频 {v.material_id} 正在处理中")
     if not v.url:

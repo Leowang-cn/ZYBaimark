@@ -153,11 +153,60 @@ def test_regenerate_queues_with_prompt(client, monkeypatch):
 
 
 def test_default_prompt_versions(client):
+    import json as _json
     login(client)
     p = client.get("/api/prompts/default").json()
-    assert p["version"] == 1 and "互动" in p["content"]
-    assert client.put("/api/prompts/default", json={"content": p["content"] + "\n补充"}).json()["version"] == 2
+    cfg = _json.loads(p["content"])
+    assert p["version"] == 1 and cfg["schema"] == 2 and "互动" in cfg["b1"]
+    assert client.put("/api/prompts/default", json={"content": p["content"] + "x"}).status_code == 400
+    cfg["settings"]["density"] = 0.5
+    assert client.put("/api/prompts/default", json={"content": _json.dumps(cfg)}).json()["version"] == 2
     assert len(client.get("/api/prompts/default/versions").json()) == 2
+    cfg["settings"]["density"] = 9
+    assert client.put("/api/prompts/default", json={"content": _json.dumps(cfg)}).status_code == 400
+    r = client.post("/api/prompts/render", json={"content": p["content"], "duration_s": 400}).json()
+    assert "约 7 道" in r["text"] and r["structured"] is True
+    assert client.post("/api/prompts/render", json={"content": "旧版纯文本规则" * 5}).json()["structured"] is False
+
+
+def test_seed_appends_v2_over_legacy(tmp_path, monkeypatch):
+    from backend import db as dbm, rules
+    from backend.db import DefaultPrompt
+    from backend.main import seed_default_rules
+    from sqlalchemy import select
+    monkeypatch.setenv("SECRET_KEY", "x" * 40)
+    monkeypatch.setenv("APP_PASSWORD", "testpass123")
+    monkeypatch.setenv("AI_API_KEY", "x")
+    monkeypatch.setenv("STORAGE_PROVIDER", "local")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path}/s.sqlite")
+    from backend import config
+    config.settings = None
+    dbm.init_db()
+    with dbm.SessionLocal() as s:
+        s.add(DefaultPrompt(version=1, content="旧版纯文本规则" * 5))
+        s.commit()
+        seed_default_rules(s)
+        seed_default_rules(s)
+        vs = s.scalars(select(DefaultPrompt).order_by(DefaultPrompt.version)).all()
+        assert [v.version for v in vs] == [1, 2] and rules.is_structured(vs[1].content)
+
+
+def test_rules_effects():
+    import json as _json
+    from backend import rules
+    from backend.pipeline.extract import finalize
+    cfg = rules.builtin_cfg()
+    assert rules.target_count(cfg, 400) == 7
+    cfg["settings"].update(density=0.5, judgment=False, anchor="question")
+    text = _json.dumps(cfg)
+    assert rules.target_count(rules.load(text), 400) == 4
+    out = rules.render(rules.load(text), 400)
+    assert "不收录判断题" in out and "问题本身最后一个字" in out and "每分钟 0.5 道" in out
+    tr = {"segments": [{"id": "s1", "start": 0, "end": 3, "text": "这样对不对呢？你来判断一下"}], "words": []}
+    rows = finalize([{"question": "这样对不对呢？你来判断一下", "answer": "对", "anchor_segment": "s1"}], tr, [], 10, text)
+    assert "不收录判断题" in rows[0]["review_reason"]
+    assert rules.render("旧版纯文本") == "旧版纯文本"
 
 
 def test_finalize_and_answers():
@@ -286,3 +335,10 @@ def test_draft_mark(client, monkeypatch):
     assert d["answer"] == "C" and d["question"].startswith("3加4")
     lines = seen["user"].splitlines()
     assert "太远的内容" not in seen["user"] and lines.index("【打点时刻】") == 2
+
+
+def test_object_keys_unique_across_deployments():
+    from backend.pipeline.worker import _key
+    a = _key("2577528631249483206", "aaa111", "transcription.json")
+    b = _key("2577528631249483206", "bbb222", "transcription.json")
+    assert a != b and a.startswith("videos/2577528631249483206/")

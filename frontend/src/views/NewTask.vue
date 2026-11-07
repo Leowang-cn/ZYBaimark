@@ -2,9 +2,9 @@
 import { computed, inject, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api';
-import { changedTitles, splitPrompt } from '../prompt';
+import { diffRules, summarize } from '../rules';
 import CtpLogin from '../components/CtpLogin.vue';
-import PromptDrawer from '../components/PromptDrawer.vue';
+import RulesDrawer from '../components/RulesDrawer.vue';
 
 const router = useRouter();
 const toast = inject('toast');
@@ -24,9 +24,8 @@ const ids = computed(() => [...new Set(tokens.value)]);
 const badIds = computed(() => ids.value.filter((x) => !/^\d{6,25}$/.test(x)));
 const dupCount = computed(() => tokens.value.length - ids.value.length);
 const validIds = computed(() => ids.value.filter((x) => /^\d{6,25}$/.test(x)));
-const isDefaultPrompt = computed(() => prompt.value.trim() === defaultPrompt.value.trim());
-const changed = computed(() => [...changedTitles(prompt.value, defaultPrompt.value)]);
-const sections = computed(() => splitPrompt(prompt.value).map((c) => c.title));
+const changed = computed(() => diffRules(prompt.value, defaultPrompt.value));
+const isDefaultPrompt = computed(() => !changed.value.length);
 const canSubmit = computed(() => cred.value && validIds.value.length && !badIds.value.length && !submitting.value);
 const blocker = computed(() => {
   if (!validIds.value.length) return '请输入视频素材 ID';
@@ -127,7 +126,7 @@ async function submit() {
           <div>
             <template v-if="isDefaultPrompt">
               <b>使用默认规则</b><span v-if="defaultVersion" class="muted small"> · v{{ defaultVersion }}</span>
-              <div class="muted small">按小学数学课堂互动题标准抽取：{{ sections.slice(1, 5).join('、') }} 等 {{ sections.length }} 个部分</div>
+              <div class="muted small">{{ summarize(prompt) }}</div>
             </template>
             <template v-else>
               <b>已为本任务自定义规则</b>
@@ -153,13 +152,13 @@ async function submit() {
       </div>
     </div>
 
-    <PromptDrawer v-model:open="drawer" v-model="prompt" :default-text="defaultPrompt" />
+    <RulesDrawer v-model:open="drawer" v-model="prompt" :default-text="defaultPrompt" />
   </div>
 </template>
 
 <style scoped>
 .narrow { max-width: 920px; }
-.page.narrow { padding-bottom: 96px; }
+.page.narrow { padding-bottom: 120px; }
 .step { padding: 18px 20px; }
 .step-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .step-head h2 { margin: 0; }

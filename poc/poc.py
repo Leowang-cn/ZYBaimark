@@ -207,7 +207,7 @@ def build_evidence(tr: dict, silences: list[tuple[float, float]]) -> str:
 
 # ---------------- LLM ----------------
 
-DEFAULT_PROMPT = ROOT.parent / "prompts" / "default.md"
+DEFAULT_PROMPT = ROOT.parent / "prompts" / "default_v1.md"
 
 # 系统固定的输入/输出契约，不对用户暴露，保证人工修改规则后程序仍能解析结果
 CONTRACT = """
@@ -436,7 +436,7 @@ def main() -> None:
     ap.add_argument("cmd", choices=["login", "run", "resolve"])
     ap.add_argument("ids", nargs="*")
     ap.add_argument("--cookie-file", default=str(OUT / "cookie.txt"))
-    ap.add_argument("--prompt", default=str(DEFAULT_PROMPT), help="抽题规则文件，默认 prompts/default.md")
+    ap.add_argument("--prompt", default=str(DEFAULT_PROMPT), help="抽题规则文件，默认 prompts/default_v1.md")
     a = ap.parse_args()
     cookie_path = Path(a.cookie_file)
     if a.cmd == "login":

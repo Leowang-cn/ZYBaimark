@@ -8,6 +8,7 @@ import re
 import requests
 
 from ..config import get_settings
+from .. import rules as rules_mod
 from .media import PAUSE_MIN_S, PipelineError
 
 INSTRUCTION_WORDS = ["选一选", "算一算", "填一填", "判断", "回答", "圈一圈", "连一连", "找一找", "想一想",
@@ -107,9 +108,11 @@ def uncovered_hints(tr: dict, silences, items: list[dict], excluded: list[dict])
     return hints
 
 
-def extract(rules: str, tr: dict, silences, duration: float, progress=lambda _m: None) -> dict:
+def extract(rules_text: str, tr: dict, silences, duration: float, progress=lambda _m: None) -> dict:
+    cfg = rules_mod.load(rules_text)
+    rules = rules_mod.render(cfg, duration)
     evidence = build_evidence(tr, silences)
-    target = math.ceil(duration / 60)
+    target = rules_mod.target_count(cfg, duration)
     progress("llm1")
     p1 = chat_json(system_prompt(rules, PASS1_TASK), evidence)
     items, excluded = list(p1.get("items") or []), list(p1.get("excluded") or [])
@@ -180,7 +183,12 @@ def text_support(question: str, tr: dict, anchor_seg: str) -> float:
     return sum(b.size for b in sm.get_matching_blocks()) / len(q)
 
 
-def finalize(items: list[dict], tr: dict, silences, duration: float) -> list[dict]:
+def is_judgment_answer(ans: str) -> bool:
+    return re.sub(r"[。.！!\s]", "", ans) in rules_mod.JUDGMENT_ANSWERS
+
+
+def finalize(items: list[dict], tr: dict, silences, duration: float, rules_text: str = "") -> list[dict]:
+    cfg = rules_mod.load(rules_text) if rules_text else ""
     rows = []
     for it in items:
         if not isinstance(it, dict):
@@ -202,6 +210,8 @@ def finalize(items: list[dict], tr: dict, silences, duration: float) -> list[dic
         ans = normalize_answer(str(it.get("answer") or ""))
         if not question or not ans:
             reasons.append("问题或答案为空")
+        if ans and not rules_mod.allow_judgment(cfg) and is_judgment_answer(ans):
+            reasons.append("规则设置为不收录判断题")
         rows.append({"time": round(t, 3), "question": question, "answer": ans, "review_reason": "；".join(reasons),
                      "evidence": str(it.get("answer_evidence") or "")})
     rows.sort(key=lambda r: r["time"])
