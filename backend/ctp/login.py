@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import os
 import secrets
 import threading
 import time
@@ -14,6 +15,15 @@ log = logging.getLogger(__name__)
 
 QR_FRAME = "iframe[src*='login.dingtalk.com']"
 QR_TTL_S = 110
+
+
+def _glibc_version() -> tuple[int, int] | None:
+    try:
+        name, ver = os.confstr("CS_GNU_LIBC_VERSION").split()
+        major, minor = ver.split(".")[:2]
+        return (int(major), int(minor)) if name == "glibc" else None
+    except (AttributeError, ValueError, OSError):
+        return None  # 非 glibc 系统（如 macOS）
 
 
 @dataclass
@@ -43,6 +53,14 @@ class LoginManager:
 
     def check_capability(self) -> None:
         """启动时在后台试启动一次无头浏览器，判断本机是否支持扫码登录。"""
+        glibc = _glibc_version()
+        if glibc and glibc < (2, 28):
+            # Playwright 驱动需要 glibc 2.28+，老系统直接判定不可用，避免启动驱动刷出大量错误日志
+            self.qr_available = False
+            self.qr_unavailable_reason = f"服务器系统过旧（glibc {glibc[0]}.{glibc[1]}），无法运行无头浏览器"
+            log.info("扫码登录：不可用（glibc %d.%d < 2.28），将使用粘贴 Cookie", *glibc)
+            return
+
         def run():
             try:
                 from playwright.sync_api import sync_playwright
