@@ -21,8 +21,6 @@ def client(tmp_path, monkeypatch):
     from backend.pipeline import worker as wk
     monkeypatch.setattr(wk.worker, "start", lambda: None)
     monkeypatch.setattr(wk.worker, "notify", lambda: None)
-    from backend.ctp.login import login_manager
-    monkeypatch.setattr(login_manager, "check_capability", lambda: None)
     from backend.security import login_limiter
     login_limiter.hits.clear()
     with TestClient(main.app) as c:
@@ -297,16 +295,11 @@ def test_env_value_cleanup(monkeypatch):
     assert s.app_env == "development" and s.storage_provider == "local" and s.cookie_secure is False
 
 
-def test_qr_unavailable_falls_back(client):
-    from backend.ctp.login import login_manager
+def test_qr_login_disabled(client):
     login(client)
-    login_manager.qr_available, login_manager.qr_unavailable_reason = False, "服务器无法运行无头浏览器（Error）"
-    try:
-        assert client.get("/api/capabilities").json()["qr_login"] is False
-        r = client.post("/api/login-sessions")
-        assert r.status_code == 429 and "粘贴 Cookie" in r.json()["detail"]
-    finally:
-        login_manager.qr_available = None
+    c = client.get("/api/capabilities").json()
+    assert c["qr_login"] is False and "粘贴 Cookie" in c["qr_login_reason"]
+    assert client.post("/api/login-sessions").status_code in (404, 405)
 
 
 def test_ctp_check(client, monkeypatch):

@@ -4,8 +4,9 @@ SQLAlchemy>=2.0
 python-dotenv>=1.0
 requests>=2.31
 openpyxl>=3.1
-playwright>=1.44
+# 钉钉扫码登录暂停使用，以下依赖暂不安装；恢复时取消注释
+# playwright>=1.44
 # greenlet 3.3+ 不再提供 manylinux2014(glibc 2.17) 预编译包，旧系统上会源码编译失败
-greenlet>=3.1.1,<3.3
+# greenlet>=3.1.1,<3.3
 cryptography>=42
 cos-python-sdk-v5>=1.9.30

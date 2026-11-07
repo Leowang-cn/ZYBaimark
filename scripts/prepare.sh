@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 部署环境准备：Python 依赖、无头浏览器（可选）、前端构建。
+# 部署环境准备：Python 依赖、前端构建（无头浏览器安装已随扫码登录一并暂停）。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -22,16 +22,17 @@ echo "== Python 依赖"
 .venv/bin/python -m pip install --upgrade "pip>=23" -q
 .venv/bin/python -m pip install --prefer-binary -r requirements.txt
 
-echo "== 无头浏览器（扫码登录用，失败不影响其他功能，可改用粘贴 Cookie）"
-# Playwright 的 Node 驱动需要 glibc 2.28+；老系统（如 CentOS 7, glibc 2.17）直接跳过
-GLIBC_VER="$(ldd --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+$' || echo 0.0)"
-if [ "$(printf '%s\n2.28\n' "$GLIBC_VER" | sort -V | head -1)" != "2.28" ]; then
-  echo "警告：系统 glibc $GLIBC_VER < 2.28，无法运行无头浏览器，扫码登录不可用（将使用粘贴 Cookie）"
-elif .venv/bin/python -m playwright install chromium-headless-shell; then
-  echo "浏览器已安装"
-else
-  echo "警告：无头浏览器安装失败，扫码登录不可用"
-fi
+# 钉钉扫码登录暂停使用，跳过无头浏览器安装；恢复时取消以下注释
+# echo "== 无头浏览器（扫码登录用，失败不影响其他功能，可改用粘贴 Cookie）"
+# # Playwright 的 Node 驱动需要 glibc 2.28+；老系统（如 CentOS 7, glibc 2.17）直接跳过
+# GLIBC_VER="$(ldd --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+$' || echo 0.0)"
+# if [ "$(printf '%s\n2.28\n' "$GLIBC_VER" | sort -V | head -1)" != "2.28" ]; then
+#   echo "警告：系统 glibc $GLIBC_VER < 2.28，无法运行无头浏览器，扫码登录不可用（将使用粘贴 Cookie）"
+# elif .venv/bin/python -m playwright install chromium-headless-shell; then
+#   echo "浏览器已安装"
+# else
+#   echo "警告：无头浏览器安装失败，扫码登录不可用"
+# fi
 
 echo "== 前端构建"
 npm ci

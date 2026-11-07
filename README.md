@@ -33,7 +33,7 @@
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python -m playwright install chromium-headless-shell   # 扫码登录用
+# .venv/bin/python -m playwright install chromium-headless-shell   # 扫码登录用（暂停使用）
 npm ci
 npm run build
 cp -n .env.example .env && chmod 600 .env    # 填写 SECRET_KEY、APP_PASSWORD、AI_API_KEY、COS_*
@@ -61,14 +61,14 @@ cp -n .env.example .env && chmod 600 .env    # 填写 SECRET_KEY、APP_PASSWORD�
 | 启动命令 | `bash scripts/start.sh 8916`（也接受 `--port 8916 --host 0.0.0.0` 形式；不写端口时用环境变量 `PORT`，再没有则 8000）。不要用 `vite`/`npm run dev`，那是前端开发服务器 |
 | 健康检查 | `/api/health` |
 
-`scripts/prepare.sh` 会检查 Python/Node/ffmpeg 版本、安装 Python 依赖（优先预编译包）、安装无头浏览器（失败只告警）、构建前端；会自动优先使用 `/usr/local/node24|22|20/bin` 下的 Node。
+`scripts/prepare.sh` 会检查 Python/Node/ffmpeg 版本、安装 Python 依赖（优先预编译包）、构建前端（无头浏览器安装已随扫码登录暂停）；会自动优先使用 `/usr/local/node24|22|20/bin` 下的 Node。
 
 旧系统（glibc 2.17，如 CentOS 7）说明：`greenlet` 已固定在 `<3.3`，因为 3.3 起不再提供该系统的预编译包，源码编译会因 GCC 过旧失败。
 
 额外注意：
 
 - 生产设置 `APP_ENV=production`、`STORAGE_PROVIDER=cos`、`COOKIE_SECURE=true`，缺失时拒绝启动。
-- 扫码登录依赖无头浏览器，要求 glibc ≥ 2.28。老系统（如 CentOS 7，glibc 2.17）无法运行，`prepare.sh` 会跳过安装，服务启动时自动检测，新建任务页默认切到“粘贴 Cookie”并给出获取步骤；其他功能不受影响。
+- **钉钉扫码登录暂停使用**：相关代码（`backend/ctp/login.py` 的调用、`/api/login-sessions` 接口、`playwright` 依赖、`prepare.sh` 中的浏览器安装）已注释，目前只支持粘贴 Cookie；恢复时取消这些注释即可。原说明：扫码登录依赖无头浏览器，要求 glibc ≥ 2.28。老系统（如 CentOS 7，glibc 2.17）无法运行，`prepare.sh` 会跳过安装，服务启动时自动检测，新建任务页默认切到“粘贴 Cookie”并给出获取步骤；其他功能不受影响。
 - 部署机需能访问 `iot-admin.yukework.com`、`ips.yukework.com`、`login.dingtalk.com`、`ntresource.cdnjtzy.com` 和大模型代理。
 - 单进程运行（后台任务与扫码会话在进程内）；不要启动多个 worker 进程共用同一数据库。
 - 持久化并备份 `data/app.sqlite` 与 COS 前缀；COS 只保存 `videos/<id>/silences.json`、`transcription.json`。音频只在处理时临时生成、用完即删，不上传 COS（当前桶对 `.mp3` 配置了自动转码，上传会额外生成 HLS 文件并计费）。

@@ -20,7 +20,8 @@ from . import db as dbm
 from . import rules
 from .config import ROOT, get_settings
 from .ctp import client as ctp
-from .ctp.login import login_manager
+# 钉钉扫码登录暂停使用（依赖 Playwright 无头浏览器，部署环境不稳定）；恢复时取消以下注释
+# from .ctp.login import login_manager
 from .db import AppSession, DefaultPrompt, Generation, Mark, Task, Video, get_db, utcnow
 from .export import ExportError, build_rows, to_csv, to_xlsx, validate_rows
 from .pipeline.extract import draft_mark, fmt_ts
@@ -62,7 +63,7 @@ async def lifespan(_app: FastAPI):
     dbm.init_db()
     with dbm.SessionLocal() as session:
         seed_default_rules(session)
-    login_manager.check_capability()
+    # login_manager.check_capability()
     worker.start()
     yield
     worker.shutdown()
@@ -170,7 +171,8 @@ def me():
 
 @app.get("/api/capabilities", dependencies=Auth)
 def capabilities():
-    return {"qr_login": login_manager.qr_available, "qr_login_reason": login_manager.qr_unavailable_reason}
+    # return {"qr_login": login_manager.qr_available, "qr_login_reason": login_manager.qr_unavailable_reason}
+    return {"qr_login": False, "qr_login_reason": "扫码登录暂停使用，请粘贴 Cookie"}
 
 
 class CookieCheckIn(BaseModel):
@@ -266,37 +268,38 @@ def save_default_prompt(body: PromptIn, db: Session = Depends(get_db)):
 
 # ---------------- 扫码登录 ----------------
 
-@app.post("/api/login-sessions", dependencies=Auth)
-def start_login():
-    try:
-        return login_manager.start().public()
-    except RuntimeError as e:
-        raise HTTPException(429, str(e)) from e
-
-
-@app.get("/api/login-sessions/{sid}", dependencies=Auth)
-def login_status(sid: str):
-    sess = login_manager.get(sid)
-    if not sess:
-        raise HTTPException(404, "登录会话不存在")
-    return sess.public()
-
-
-@app.post("/api/login-sessions/{sid}/refresh", dependencies=Auth)
-def login_refresh(sid: str):
-    sess = login_manager.get(sid)
-    if not sess or sess.status != "pending":
-        raise HTTPException(409, "当前状态不能刷新二维码")
-    sess.refresh_flag.set()
-    return {"ok": True}
-
-
-@app.delete("/api/login-sessions/{sid}", dependencies=Auth)
-def login_cancel(sid: str):
-    sess = login_manager.get(sid)
-    if sess:
-        sess.cancel_flag.set()
-    return {"ok": True}
+# 暂停使用，恢复时取消以下注释
+# @app.post("/api/login-sessions", dependencies=Auth)
+# def start_login():
+#     try:
+#         return login_manager.start().public()
+#     except RuntimeError as e:
+#         raise HTTPException(429, str(e)) from e
+#
+#
+# @app.get("/api/login-sessions/{sid}", dependencies=Auth)
+# def login_status(sid: str):
+#     sess = login_manager.get(sid)
+#     if not sess:
+#         raise HTTPException(404, "登录会话不存在")
+#     return sess.public()
+#
+#
+# @app.post("/api/login-sessions/{sid}/refresh", dependencies=Auth)
+# def login_refresh(sid: str):
+#     sess = login_manager.get(sid)
+#     if not sess or sess.status != "pending":
+#         raise HTTPException(409, "当前状态不能刷新二维码")
+#     sess.refresh_flag.set()
+#     return {"ok": True}
+#
+#
+# @app.delete("/api/login-sessions/{sid}", dependencies=Auth)
+# def login_cancel(sid: str):
+#     sess = login_manager.get(sid)
+#     if sess:
+#         sess.cancel_flag.set()
+#     return {"ok": True}
 
 
 # ---------------- 任务 ----------------
@@ -338,16 +341,17 @@ def create_task(body: TaskIn, db: Session = Depends(get_db)):
     if len(ids) > s.max_ids_per_task:
         raise HTTPException(400, f"每个任务最多 {s.max_ids_per_task} 个素材 ID")
     cookie = None
-    if body.login_session_id:
-        cookie = login_manager.take_cookie(body.login_session_id)
-        if not cookie:
-            raise HTTPException(400, "扫码登录未完成或已使用，请重新扫码")
-    elif body.cookie_text:
+    # 扫码登录暂停使用
+    # if body.login_session_id:
+    #     cookie = login_manager.take_cookie(body.login_session_id)
+    #     if not cookie:
+    #         raise HTTPException(400, "扫码登录未完成或已使用，请重新扫码")
+    if body.cookie_text:
         cookie = ctp.extract_cookie(body.cookie_text)
         if not cookie:
             raise HTTPException(400, "粘贴内容中没有找到 ZYBIPSCAS，请确认已复制完整 Cookie")
     else:
-        raise HTTPException(400, "请先扫码登录或粘贴 Cookie")
+        raise HTTPException(400, "请先粘贴 Cookie")
     try:
         ctp.check_login(cookie)
     except ctp.CtpAuthError as e:
@@ -520,14 +524,15 @@ def reresolve(video_id: int, body: ReresolveIn, db: Session = Depends(get_db)):
     if v.status != "resolve_failed":
         raise HTTPException(409, "只有解析失败的视频需要重新解析")
     cookie = None
-    if body.login_session_id:
-        cookie = login_manager.take_cookie(body.login_session_id)
-    elif body.cookie_text:
+    # 扫码登录暂停使用
+    # if body.login_session_id:
+    #     cookie = login_manager.take_cookie(body.login_session_id)
+    if body.cookie_text:
         cookie = ctp.extract_cookie(body.cookie_text)
     elif v.task.cookie_enc and v.task.cookie_expire_at and v.task.cookie_expire_at > utcnow():
         cookie = decrypt(v.task.cookie_enc)
     if not cookie:
-        raise HTTPException(400, "登录态已失效，请重新扫码登录")
+        raise HTTPException(400, "登录态已失效，请重新粘贴 Cookie")
     try:
         info = ctp.resolve_material(v.material_id, cookie)
     except ctp.CtpError as e:
