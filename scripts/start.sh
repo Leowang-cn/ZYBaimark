@@ -4,5 +4,5 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 PORT="${1:-${PORT:-8000}}"
 case "$PORT" in ''|*[!0-9]*) echo "端口无效：$PORT" >&2; exit 1;; esac
-echo "启动服务，监听 0.0.0.0:$PORT"
+echo "启动服务，版本 $(git rev-parse --short HEAD 2>/dev/null || echo unknown)，监听 0.0.0.0:$PORT"
 exec .venv/bin/python -m uvicorn backend.main:app --host 0.0.0.0 --port "$PORT"

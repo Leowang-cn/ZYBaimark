@@ -49,6 +49,7 @@ def ensure_data_dir(path) -> None:
 async def lifespan(_app: FastAPI):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     ensure_data_dir(get_settings().data_dir)
+    log.info("ACCESS_TOKEN：%s", "已配置" if get_settings().access_token else "未配置（仅能用口令登录）")
     dbm.init_db()
     with dbm.SessionLocal() as session:
         if not session.scalar(select(DefaultPrompt.id).limit(1)):
