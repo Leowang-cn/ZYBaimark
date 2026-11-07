@@ -77,6 +77,7 @@ cp -n .env.example .env && chmod 600 .env    # 填写 SECRET_KEY、APP_PASSWORD�
 
 - 内容生产系统 Cookie 只提取 `ZYBIPSCAS`，用 `SECRET_KEY` 派生密钥加密保存于任务，`CTP_COOKIE_TTL_HOURS`（默认 24 小时）后不再使用；不写日志、不返回前端。
 - 网站访问使用共享口令，会话 Cookie 为 HttpOnly，登录接口限速；写操作校验同源。
+- 部署平台验收与脚本调用可用 `ACCESS_TOKEN`：请求头 `Authorization: Bearer <ACCESS_TOKEN>`。未配置时只能通过口令登录访问。
 - 视频本身不落盘也不上传，播放直接使用 CDN 地址。
 
 ## 目录

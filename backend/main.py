@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import ipaddress
 import json
 import logging
@@ -76,6 +77,11 @@ def client_ip(request: Request) -> str:
 
 
 def require_auth(request: Request, db: Session = Depends(get_db)) -> None:
+    # 部署平台与脚本调用：Authorization: Bearer <ACCESS_TOKEN>
+    expected = get_settings().access_token
+    auth = request.headers.get("authorization", "")
+    if expected and auth.lower().startswith("bearer ") and hmac.compare_digest(auth[7:].strip(), expected):
+        return
     token = request.cookies.get(SESSION_COOKIE)
     if token:
         row = db.get(AppSession, hash_token(token))

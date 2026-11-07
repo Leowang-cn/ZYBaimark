@@ -66,6 +66,15 @@ def test_auth_required(client):
     assert client.post("/api/auth/login", json={"password": "wrong"}).status_code == 401
 
 
+def test_bearer_token(client, monkeypatch):
+    from backend import config
+    object.__setattr__(config.settings, "access_token", "t" * 32)
+    assert client.get("/api/tasks", headers={"Authorization": "Bearer " + "t" * 32}).status_code == 200
+    assert client.get("/api/tasks", headers={"Authorization": "Bearer wrong"}).status_code == 401
+    object.__setattr__(config.settings, "access_token", "")
+    assert client.get("/api/tasks", headers={"Authorization": "Bearer "}).status_code == 401
+
+
 def test_cross_origin_rejected(client):
     login(client)
     r = client.post("/api/tasks", json={}, headers={"Origin": "https://evil.example.com"})

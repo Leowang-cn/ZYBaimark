@@ -37,6 +37,7 @@ class Settings:
     app_env: str
     secret_key: str
     app_password: str
+    access_token: str
     database_url: str
     data_dir: Path
     storage_provider: str
@@ -76,6 +77,7 @@ def load_settings() -> Settings:
         app_env=(os.getenv("APP_ENV") or "development").strip().lower(),
         secret_key=os.getenv("SECRET_KEY", ""),
         app_password=os.getenv("APP_PASSWORD", ""),
+        access_token=(os.getenv("ACCESS_TOKEN") or "").strip(),
         database_url=os.getenv("DATABASE_URL") or f"sqlite:///{data_dir / 'app.sqlite'}",
         data_dir=data_dir,
         storage_provider=(os.getenv("STORAGE_PROVIDER") or "local").strip().lower(),
@@ -115,6 +117,8 @@ def validate(s: Settings) -> None:
         errors.append("SECRET_KEY 至少 32 个字符")
     if len(s.app_password) < 8:
         errors.append("APP_PASSWORD 至少 8 个字符")
+    if s.access_token and len(s.access_token) < 24:
+        errors.append("ACCESS_TOKEN 至少 24 个字符")
     if s.storage_provider not in {"cos", "local"}:
         errors.append("STORAGE_PROVIDER 只能是 cos 或 local")
     if s.storage_provider == "local" and s.is_production:
