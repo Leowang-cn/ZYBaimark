@@ -77,11 +77,15 @@ def client_ip(request: Request) -> str:
     return peer
 
 
-def require_auth(request: Request, db: Session = Depends(get_db)) -> None:
-    # 部署平台与脚本调用：Authorization: Bearer <ACCESS_TOKEN>
+def has_valid_bearer(request: Request) -> bool:
     expected = get_settings().access_token
     auth = request.headers.get("authorization", "")
-    if expected and auth.lower().startswith("bearer ") and hmac.compare_digest(auth[7:].strip(), expected):
+    return bool(expected) and auth.lower().startswith("bearer ") and hmac.compare_digest(auth[7:].strip(), expected)
+
+
+def require_auth(request: Request, db: Session = Depends(get_db)) -> None:
+    # 部署平台与脚本调用：Authorization: Bearer <ACCESS_TOKEN>
+    if has_valid_bearer(request):
         return
     token = request.cookies.get(SESSION_COOKIE)
     if token:
@@ -103,7 +107,7 @@ Auth = [Depends(same_origin), Depends(require_auth)]
 
 
 class LoginIn(BaseModel):
-    password: str = Field(max_length=200)
+    password: str = Field(default="", max_length=200)
 
 
 def is_https(request: Request) -> bool:
@@ -119,7 +123,11 @@ def is_https(request: Request) -> bool:
 
 
 @app.post("/api/auth/login", dependencies=[Depends(same_origin)])
-def app_login(body: LoginIn, request: Request, response: Response, db: Session = Depends(get_db)):
+def app_login(request: Request, response: Response, body: LoginIn | None = None, db: Session = Depends(get_db)):
+    # 携带有效 ACCESS_TOKEN 的调用方（部署平台验收、脚本）无需口令
+    if has_valid_bearer(request):
+        return {"ok": True, "via": "token"}
+    body = body or LoginIn()
     if not login_limiter.allow(client_ip(request)):
         raise HTTPException(429, "尝试过于频繁，请稍后再试")
     if not check_password(body.password):

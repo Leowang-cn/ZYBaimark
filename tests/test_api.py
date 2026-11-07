@@ -200,3 +200,27 @@ def test_secure_cookie_over_http_rejected(client):
         assert r.status_code == 400  # 未配置可信代理时不信任该头
     finally:
         object.__setattr__(config.settings, "cookie_secure", False)
+
+
+def test_token_probe_endpoints(client):
+    from backend import config
+    tok = "t" * 32
+    object.__setattr__(config.settings, "access_token", tok)
+    try:
+        h = {"Authorization": f"Bearer {tok}"}
+        assert client.post("/api/auth/login", headers=h).status_code == 200
+        assert client.post("/api/auth/logout", headers=h).status_code == 200
+        assert client.post("/api/tasks", json={}, headers=h).status_code == 422
+        assert client.post("/api/videos/999/retry", headers=h).status_code == 404
+        assert client.post("/api/auth/login").status_code == 401
+    finally:
+        object.__setattr__(config.settings, "access_token", "")
+
+
+def test_env_value_cleanup(monkeypatch):
+    from backend import config
+    for k, v in {"SECRET_KEY": "x" * 40, "APP_PASSWORD": "testpass123", "AI_API_KEY": "x",
+                 "STORAGE_PROVIDER": ' "local" ', "APP_ENV": "'development'  # 开发", "COOKIE_SECURE": '"false"'}.items():
+        monkeypatch.setenv(k, v)
+    s = config.load_settings()
+    assert s.app_env == "development" and s.storage_provider == "local" and s.cookie_secure is False

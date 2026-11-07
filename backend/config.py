@@ -16,9 +16,15 @@ class ConfigError(RuntimeError):
     pass
 
 
+def _clean(v: str | None) -> str:
+    """去掉部署平台粘贴时可能带入的引号、行尾注释和空白。"""
+    v = (v or "").split("#", 1)[0].strip().strip("\"'“”‘’").strip()
+    return v.lower()
+
+
 def _bool(name: str, default: bool = False) -> bool:
-    v = os.getenv(name)
-    return default if v is None or v == "" else v.strip().lower() in {"1", "true", "yes", "on"}
+    v = _clean(os.getenv(name))
+    return default if v == "" else v in {"1", "true", "yes", "on"}
 
 
 def _int(name: str, default: int, lo: int, hi: int) -> int:
@@ -74,13 +80,13 @@ def load_settings() -> Settings:
     data_dir = Path(os.getenv("DATA_DIR") or ROOT / "data")
     ai_base = (os.getenv("AI_BASE_URL") or "https://llm.baifentan.com/openproxy/rp/v1").rstrip("/")
     s = Settings(
-        app_env=(os.getenv("APP_ENV") or "development").strip().lower(),
+        app_env=_clean(os.getenv("APP_ENV")) or "development",
         secret_key=os.getenv("SECRET_KEY", ""),
         app_password=os.getenv("APP_PASSWORD", ""),
         access_token=(os.getenv("ACCESS_TOKEN") or "").strip(),
         database_url=os.getenv("DATABASE_URL") or f"sqlite:///{data_dir / 'app.sqlite'}",
         data_dir=data_dir,
-        storage_provider=(os.getenv("STORAGE_PROVIDER") or "local").strip().lower(),
+        storage_provider=_clean(os.getenv("STORAGE_PROVIDER")) or "local",
         cos_region=os.getenv("COS_REGION", ""),
         cos_bucket=os.getenv("COS_BUCKET", ""),
         cos_prefix=os.getenv("COS_PREFIX", ""),
@@ -112,7 +118,7 @@ def load_settings() -> Settings:
 def validate(s: Settings) -> None:
     errors = []
     if s.app_env not in {"development", "production"}:
-        errors.append("APP_ENV 只能是 development 或 production")
+        errors.append(f"APP_ENV 只能是 development 或 production（实际收到 {os.getenv('APP_ENV')!r}）")
     if len(s.secret_key) < 32:
         errors.append("SECRET_KEY 至少 32 个字符")
     if len(s.app_password) < 8:
