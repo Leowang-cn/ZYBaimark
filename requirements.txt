@@ -1,0 +1,9 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+SQLAlchemy>=2.0
+python-dotenv>=1.0
+requests>=2.31
+openpyxl>=3.1
+playwright>=1.44
+cryptography>=42
+cos-python-sdk-v5>=1.9.30

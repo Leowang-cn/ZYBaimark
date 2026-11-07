@@ -1,0 +1,10 @@
+.env
+.pytest_cache/
+.upload-staging/
+.venv/
+__pycache__/
+data/
+frontend/dist/
+node_modules/
+poc/out/
+.DS_Store

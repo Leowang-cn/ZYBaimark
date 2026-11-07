@@ -1,0 +1,84 @@
+# 小数 AI 课自动打点
+
+输入“NL 内容生产系统”的视频素材 ID，自动抽取音频、ASR 转写，按抽题规则调用大模型生成“时间点 / 问题 / 答案”打点，经人工在审阅工作台确认后导出 Excel / CSV。
+
+设计说明见 [docs/开发方案.md](docs/开发方案.md)，部署规范见 [docs/部署要求.md](docs/部署要求.md)。
+
+## 功能
+
+- **新建任务**：钉钉扫码登录内容生产系统（或粘贴 Cookie），批量输入素材 ID（仅视频类型），可在提交前修改本任务的抽题规则。
+- **处理流水线**：ffprobe 校验 → 抽音频 → 静音检测 → ASR（分段 + 词级时间戳）→ 大模型 3 轮（候选、回扫、复核）→ 时间点计算与校验。各阶段产物缓存，失败可重试，服务重启后继续排队。
+- **生成版本**：每次生成产生不可变的新版本；可修改规则后对单个视频或整个任务重新生成（复用音频与转写，只重跑 AI）。版本可切换查看、与上一版对比、设为当前版本。当前版本已有人工修改时，新版本不会自动替换。
+- **审阅工作台**：视频直接播放 CDN 原片（失败回退 240p HLS）；点击打点从“时间点 − 提前秒数”（默认 1 秒，可调）开始播放；进度条显示全部打点；可拖动、微调、把当前时间写入选中行、新增/编辑/确认/删除（可恢复）；显示当前时间附近逐字稿。
+- **导出**：工作表“问题抽取”，四列“音频名称（素材ID + 名称）/ 问题时间点 / 问题 / 答案”，导出全部未删除行（有未确认行时提示），同时支持 UTF-8 BOM CSV；导出前校验并回读验证。
+- **默认规则**：设置页编辑默认抽题规则，保存为新版本，可查看历史。
+
+## 快捷键（审阅页）
+
+| 键 | 作用 |
+| --- | --- |
+| 空格 | 播放 / 暂停 |
+| ← / → | ±1 秒 |
+| Shift + ← / → | ±0.1 秒 |
+| ↑ / ↓ | 上 / 下一个打点（并定位播放） |
+| Enter | 当前时间写入选中行 |
+| N | 以当前时间新增打点 |
+| C | 确认 / 取消确认 |
+
+## 本地运行
+
+需要 Python 3.9+、Node 20+、ffmpeg/ffprobe。
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m playwright install chromium-headless-shell   # 扫码登录用
+npm ci
+npm run build
+cp -n .env.example .env && chmod 600 .env    # 填写 SECRET_KEY、APP_PASSWORD、AI_API_KEY、COS_*
+.venv/bin/python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
+```
+
+浏览器打开 `http://127.0.0.1:8000`，输入 `APP_PASSWORD` 进入。
+
+前端开发可另开 `npm run dev`（5173 端口，`/api` 代理到 8000）。
+
+测试：
+
+```bash
+.venv/bin/python -m pip install -r requirements-dev.txt
+.venv/bin/python -m pytest -q tests
+```
+
+## 部署
+
+按 [docs/部署要求.md](docs/部署要求.md)：安装依赖、`npm ci && npm run build`、`uvicorn backend.main:app`，健康检查 `GET /api/health`。额外注意：
+
+- 生产设置 `APP_ENV=production`、`STORAGE_PROVIDER=cos`、`COOKIE_SECURE=true`，缺失时拒绝启动。
+- 扫码登录需要 `playwright install chromium-headless-shell`；Linux 若缺系统库可执行 `.venv/bin/python -m playwright install-deps chromium`（需要 root）。扫码不可用时页面会提示改用“粘贴 Cookie”，其他功能不受影响。
+- 部署机需能访问 `iot-admin.yukework.com`、`ips.yukework.com`、`login.dingtalk.com`、`ntresource.cdnjtzy.com` 和大模型代理。
+- 单进程运行（后台任务与扫码会话在进程内）；不要启动多个 worker 进程共用同一数据库。
+- 持久化并备份 `data/app.sqlite` 与 COS 前缀；音频、静音、转写等产物存于 COS `videos/<id>/`。
+
+## 数据与安全
+
+- 内容生产系统 Cookie 只提取 `ZYBIPSCAS`，用 `SECRET_KEY` 派生密钥加密保存于任务，`CTP_COOKIE_TTL_HOURS`（默认 24 小时）后不再使用；不写日志、不返回前端。
+- 网站访问使用共享口令，会话 Cookie 为 HttpOnly，登录接口限速；写操作校验同源。
+- 视频本身不落盘也不上传，播放直接使用 CDN 地址。
+
+## 目录
+
+```text
+backend/            FastAPI 应用
+  main.py           API 与静态前端
+  config.py         配置加载与启动校验
+  db.py             数据模型（SQLite）
+  ctp/              内容生产系统：扫码登录、素材解析
+  pipeline/         媒体处理、ASR、抽题、后台任务
+  export.py         Excel / CSV 导出与校验
+  storage.py        COS / 本地存储
+frontend/           Vue 3 + Vite
+prompts/default.md  默认抽题规则（首次启动写入数据库）
+poc/                技术验证脚本
+tests/              接口与核心逻辑测试
+```
