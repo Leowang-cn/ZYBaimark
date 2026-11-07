@@ -69,14 +69,14 @@ def build_evidence(tr: dict, silences) -> str:
     return "\n".join(lines)
 
 
-def chat_json(system: str, user: str) -> dict:
+def chat_json(system: str, user: str, timeout: int = 300) -> dict:
     s = get_settings()
     try:
         r = requests.post(f"{s.ai_base_url}/chat/completions", headers={"Authorization": f"Bearer {s.ai_api_key}"},
                           json={"model": s.ai_model, "response_format": {"type": "json_object"},
                                 "messages": [{"role": "system", "content": system},
                                              {"role": "user", "content": user}]},
-                          timeout=300)
+                          timeout=timeout)
     except requests.RequestException as e:
         raise PipelineError(f"大模型请求失败：{type(e).__name__}") from e
     if r.status_code != 200:
@@ -212,3 +212,35 @@ def finalize(items: list[dict], tr: dict, silences, duration: float) -> list[dic
             continue
         dedup.append(r)
     return dedup
+
+
+DRAFT_SYSTEM = """你是小学数学课堂互动题整理助手。下面是老师讲课逐字稿的一个片段（ASR 可能有错字），
+标注了【打点时刻】，即学生应开始作答的位置。请根据打点时刻之前老师提出的问题、之后老师公布或讲解的答案，
+整理出一道客观题。
+
+要求：
+- question：尽量保留老师原话，可删口头填充词、修正明显 ASR 错字、合并“问题+互动指令”；不得编造老师没说过的内容。
+- answer：老师明确说出选项字母时只写字母（如“C”）；否则写最小充分答案（数字、算式、词、单位、能/不能等）。
+- 如果片段中没有可作答的客观问题，或答案无法确定，question/answer 尽量给出最接近的内容，并将 confident 设为 false、在 note 中说明。
+只输出 JSON：{"question":"","answer":"","confident":true,"note":""}"""
+
+
+def draft_mark(tr: dict, t: float, before: float = 10, after: float = 10) -> dict:
+    segs = [s for s in tr["segments"] if s["end"] >= t - before and s["start"] <= t + after]
+    if not segs:
+        raise PipelineError("该时间点附近没有逐字稿内容")
+    lines, marked = [], False
+    for s in segs:
+        if not marked and s["start"] >= t:
+            lines.append("【打点时刻】")
+            marked = True
+        lines.append(f"{fmt_ts(s['start'])} {s['text']}")
+        if not marked and s["start"] < t <= s["end"]:
+            lines.append("【打点时刻】")
+            marked = True
+    if not marked:
+        lines.append("【打点时刻】")
+    r = chat_json(DRAFT_SYSTEM, "\n".join(lines), timeout=60)
+    return {"question": str(r.get("question") or "").strip(), "answer": normalize_answer(str(r.get("answer") or "")),
+            "confident": bool(r.get("confident", True)), "note": str(r.get("note") or "").strip(),
+            "context": "\n".join(lines)}

@@ -22,7 +22,8 @@ from .ctp import client as ctp
 from .ctp.login import login_manager
 from .db import AppSession, DefaultPrompt, Generation, Mark, Task, Video, get_db, utcnow
 from .export import ExportError, build_rows, to_csv, to_xlsx, validate_rows
-from .pipeline.extract import fmt_ts
+from .pipeline.extract import draft_mark, fmt_ts
+from .pipeline.media import PipelineError
 from .pipeline.worker import has_manual_edits, load_transcript, worker
 from .security import check_password, decrypt, encrypt, hash_token, login_limiter, new_token
 
@@ -561,6 +562,24 @@ def add_mark(gid: int, body: MarkIn, db: Session = Depends(get_db)):
     db.add(m)
     db.commit()
     return mark_out(m)
+
+
+class DraftIn(BaseModel):
+    time_s: float = Field(ge=0)
+    before_s: float = Field(default=10, ge=1, le=60)
+    after_s: float = Field(default=10, ge=0, le=60)
+
+
+@app.post("/api/videos/{video_id}/draft-mark", dependencies=Auth)
+def draft(video_id: int, body: DraftIn, db: Session = Depends(get_db)):
+    """根据打点时刻前后逐字稿，由 AI 草拟问题与答案（不落库，由前端填入后保存）。"""
+    tr = load_transcript(get_video(db, video_id))
+    if not tr:
+        raise HTTPException(409, "逐字稿尚未生成，无法自动生成问题")
+    try:
+        return draft_mark(tr, body.time_s, body.before_s, body.after_s)
+    except PipelineError as e:
+        raise HTTPException(502, str(e)) from e
 
 
 @app.patch("/api/marks/{mid}", dependencies=Auth)

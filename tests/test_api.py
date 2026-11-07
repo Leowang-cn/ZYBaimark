@@ -122,9 +122,9 @@ def test_task_flow_versions_and_export(client, monkeypatch):
     r = client.get(f"/api/export?task_id={v['task_id']}&format=xlsx")
     assert r.status_code == 200
     rows = list(load_workbook(io.BytesIO(r.content))["问题抽取"].iter_rows(values_only=True))
-    assert rows[0] == ("音频名称", "问题时间点", "问题", "答案")
-    assert rows[1:] == [("222222 视频222222.mp4", "00:00:11.200", "3加4等于多少？", "7"),
-                        ("222222 视频222222.mp4", "00:00:50.000", "新题", "B")]
+    assert rows[0] == ("视频ID", "视频名称", "问题时间点", "问题", "答案")
+    assert rows[1:] == [("222222", "视频222222.mp4", "00:00:11.200", "3加4等于多少？", "7"),
+                        ("222222", "视频222222.mp4", "00:00:50.000", "新题", "B")]
     csv = client.get(f"/api/export?video_id={vid}&format=csv").content
     assert csv.startswith(b"\xef\xbb\xbf") and len(csv.decode("utf-8-sig").strip().splitlines()) == 3
 
@@ -253,3 +253,36 @@ def test_ctp_check(client, monkeypatch):
         raise ctp.CtpAuthError("x")
     monkeypatch.setattr(ctp, "check_login", expired)
     assert "失效" in client.post("/api/ctp/check", json={"cookie_text": "ZYBIPSCAS=t"}).json()["reason"]
+
+
+def test_draft_mark(client, monkeypatch):
+    import json as _json
+    from backend import db as dbm
+    from backend.db import Video
+    from backend.pipeline import extract
+    from backend.storage import get_storage
+    login(client)
+    fake_ctp(monkeypatch)
+    vid = client.post("/api/tasks", json={"material_ids": ["222222"], "prompt_text": "规则" * 20,
+                                           "cookie_text": "ZYBIPSCAS=x"}).json()["videos"][0]["id"]
+    assert client.post(f"/api/videos/{vid}/draft-mark", json={"time_s": 20}).status_code == 409
+    tr = {"segments": [{"id": "s1", "start": 5, "end": 9, "text": "与上一题无关"},
+                       {"id": "s2", "start": 12, "end": 18, "text": "3加4等于多少？请你算一算"},
+                       {"id": "s3", "start": 21, "end": 24, "text": "答案是7"},
+                       {"id": "s4", "start": 40, "end": 44, "text": "太远的内容"}], "words": []}
+    get_storage().put_bytes("videos/x/tr.json", _json.dumps(tr).encode())
+    with dbm.SessionLocal() as s:
+        s.get(Video, vid).artifacts_json = _json.dumps({"transcription": "videos/x/tr.json"})
+        s.commit()
+    seen = {}
+
+    def fake_chat(system, user, timeout=300):
+        seen["user"] = user
+        return {"question": "3加4等于多少？请你算一算", "answer": "C选项", "confident": True}
+    monkeypatch.setattr(extract, "chat_json", fake_chat)
+    r = client.post(f"/api/videos/{vid}/draft-mark", json={"time_s": 19, "before_s": 10, "after_s": 10})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["answer"] == "C" and d["question"].startswith("3加4")
+    lines = seen["user"].splitlines()
+    assert "太远的内容" not in seen["user"] and lines.index("【打点时刻】") == 2

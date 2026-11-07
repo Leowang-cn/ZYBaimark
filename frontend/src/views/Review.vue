@@ -155,18 +155,45 @@ async function setTimeToCurrent(m = selected.value) {
   if (r) toast(`已将时间设为 ${r.time}`);
 }
 
+const drafting = ref({});
+const draftWindow = ref(Number(localStorage.getItem('draftWindow') ?? 10));
+watch(draftWindow, (v) => localStorage.setItem('draftWindow', String(Math.min(60, Math.max(3, Number(v) || 10)))));
+
 async function addAtCurrent() {
+  const t = Math.round(currentTime.value * 1000) / 1000;
+  let m;
   try {
-    const m = await api(`/api/generations/${gen.value.id}/marks`, {
-      method: 'POST', body: { time_s: Math.round(currentTime.value * 1000) / 1000, question: '', answer: '' },
+    m = await api(`/api/generations/${gen.value.id}/marks`, {
+      method: 'POST', body: { time_s: t, question: '', answer: '' },
     });
-    gen.value.marks.push(m);
-    gen.value.marks.sort((a, b) => a.time_s - b.time_s || a.id - b.id);
-    selectedId.value = m.id;
-    await nextTick();
-    listEl.value?.querySelector(`[data-id="${m.id}"] textarea`)?.focus();
   } catch (e) {
-    toast(e.message, true);
+    return toast(e.message, true);
+  }
+  gen.value.marks.push(m);
+  gen.value.marks.sort((a, b) => a.time_s - b.time_s || a.id - b.id);
+  selectedId.value = m.id;
+  scrollToSelected();
+  if (segments.value.length) draftFor(m);
+}
+
+async function draftFor(m) {
+  const w = Number(draftWindow.value) || 10;
+  drafting.value[m.id] = true;
+  try {
+    const d = await api(`/api/videos/${props.id}/draft-mark`, {
+      method: 'POST', body: { time_s: m.time_s, before_s: w, after_s: w },
+    });
+    const cur = gen.value.marks.find((x) => x.id === m.id);
+    // 用户在生成期间已自行填写的字段不覆盖
+    const fields = {};
+    if (cur && !cur.question && d.question) fields.question = d.question;
+    if (cur && !cur.answer && d.answer) fields.answer = d.answer;
+    if (cur && Object.keys(fields).length) await patch(cur, fields);
+    if (!d.confident) toast(`AI 草拟结果不确定：${d.note || '请人工核对'}`, true);
+  } catch (e) {
+    toast(`自动生成问题失败：${e.message}，请手动填写`, true);
+  } finally {
+    delete drafting.value[m.id];
   }
 }
 
@@ -316,10 +343,17 @@ function onTrackClick(e) {
         <div class="panel player-panel">
           <video ref="player" controls preload="metadata" playsinline @timeupdate="onTime" @seeked="onTime"
             @play="playing = true" @pause="playing = false" @ratechange="rate = player.playbackRate" />
+          <div class="track-legend small muted">
+            <span><i class="lg-line" /> 竖线 = 作答时间点（老师说完问题、学生开始作答）</span>
+            <span><i class="lg-dot" style="background:#f59e0b" /> 待确认</span>
+            <span><i class="lg-dot" style="background:var(--ok)" /> 已确认</span>
+            <span><i class="lg-cur" /> 当前播放位置</span>
+          </div>
           <div class="track" @click="onTrackClick" title="点击跳转">
             <div class="cursor" :style="{ left: markLeft(currentTime) }" />
             <div v-for="m in liveMarks" :key="m.id" class="pin" :class="{ sel: m.id === selectedId, ok: m.confirmed }"
-              :style="{ left: markLeft(m.time_s) }" :title="`${m.time} ${m.question}`" @click.stop="selectMark(m); scrollToSelected()" />
+              :style="{ left: markLeft(m.time_s) }" :title="`${m.time} 学生从这里开始作答\n${m.question}`"
+              @click.stop="selectMark(m); scrollToSelected()"><i class="flag" /><i class="line" /></div>
           </div>
           <div class="row wrap controls">
             <span class="mono now">{{ fmtTs(currentTime) }}</span>
@@ -335,7 +369,8 @@ function onTrackClick(e) {
             <label class="small">提前 <input v-model.number="preroll" type="number" min="0" max="30" step="0.5" style="width: 56px" /> 秒播放</label>
             <span class="spacer" />
             <button class="sm" :disabled="!selected" @click="setTimeToCurrent()">当前时间写入选中行</button>
-            <button class="sm primary" :disabled="!gen" @click="addAtCurrent">以当前时间新增</button>
+            <button class="sm primary" :disabled="!gen" :title="`在当前时间新增，并用前后 ${draftWindow} 秒逐字稿让 AI 草拟问题和答案`" @click="addAtCurrent">以当前时间新增</button>
+            <label class="small muted" title="AI 草拟时参考打点前、后各多少秒的逐字稿">参考前后 <input v-model.number="draftWindow" type="number" min="3" max="60" step="1" style="width: 48px" /> 秒</label>
           </div>
           <p class="muted small keys">快捷键：空格 播放/暂停 · ←/→ ±1s · Shift+←/→ ±0.1s · ↑/↓ 上/下一题 · Enter 当前时间写入选中行 · N 新增 · C 确认/取消确认</p>
         </div>
@@ -377,7 +412,8 @@ function onTrackClick(e) {
               </template>
               <button v-else class="sm" @click.stop="patch(m, { deleted: false })">恢复</button>
             </div>
-            <textarea class="q" rows="2" :value="m.question" placeholder="问题" :disabled="m.deleted"
+            <div v-if="drafting[m.id]" class="small drafting">AI 正在根据前后 {{ draftWindow }} 秒逐字稿生成问题和答案…</div>
+            <textarea class="q" rows="2" :value="m.question" :placeholder="drafting[m.id] ? '生成中…' : '问题'" :disabled="m.deleted"
               @blur="saveText(m, 'question', $event.target.value)" />
             <div class="row">
               <span class="small muted">答案</span>
@@ -405,11 +441,20 @@ function onTrackClick(e) {
 .layout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(380px, 1fr); gap: 12px; height: calc(100vh - 52px - 70px); }
 .left { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
 .player-panel video { width: 100%; max-height: 52vh; background: #000; border-radius: 6px; display: block; }
-.track { position: relative; height: 18px; margin: 10px 0 6px; background: #eef0f3; border-radius: 4px; cursor: pointer; }
-.track .cursor { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--primary); }
-.track .pin { position: absolute; top: 3px; width: 8px; height: 12px; margin-left: -4px; border-radius: 2px; background: #f59e0b; cursor: pointer; }
-.track .pin.ok { background: var(--ok); }
-.track .pin.sel { outline: 2px solid var(--primary); z-index: 2; }
+.track-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; }
+.track-legend i { display: inline-block; vertical-align: middle; margin-right: 3px; }
+.lg-line { width: 2px; height: 12px; background: #b45309; }
+.lg-dot { width: 8px; height: 8px; border-radius: 2px; }
+.lg-cur { width: 2px; height: 12px; background: var(--primary); }
+.track { position: relative; height: 30px; margin: 6px 0 6px; background: #eef0f3; border-radius: 4px; cursor: pointer; }
+.track .cursor { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--primary); z-index: 3; pointer-events: none; }
+.track .pin { position: absolute; top: 0; bottom: 0; width: 12px; margin-left: -6px; cursor: pointer; --c: #f59e0b; }
+.track .pin.ok { --c: var(--ok); }
+.track .pin .line { position: absolute; left: 5px; top: 0; bottom: 0; width: 2px; background: var(--c); }
+.track .pin .flag { position: absolute; left: 6px; top: 0; width: 8px; height: 7px; background: var(--c); clip-path: polygon(0 0, 100% 50%, 0 100%); }
+.track .pin:hover .line, .track .pin.sel .line { width: 3px; left: 4.5px; }
+.track .pin.sel { z-index: 2; }
+.track .pin.sel .line { box-shadow: 0 0 0 2px var(--primary-weak); }
 .controls { gap: 6px; }
 .now { font-size: 15px; min-width: 104px; }
 .sm-select { height: 26px; padding: 0 4px; font-size: 12px; }
@@ -430,4 +475,5 @@ function onTrackClick(e) {
 .mark .q { font-size: 13px; }
 .mark .a { flex: 1; height: 28px; }
 .warn-text { color: var(--warn); }
+.drafting { color: var(--primary); }
 </style>
