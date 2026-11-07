@@ -97,6 +97,9 @@ def test_task_flow_versions_and_export(client, monkeypatch):
     g1 = make_generation(vid, ROWS)
     v = client.get(f"/api/videos/{vid}").json()
     assert v["current_generation_id"] == g1
+    tv = client.get(f"/api/tasks/{r.json()['id']}").json()["videos"]
+    assert (tv[0]["confirmed_count"], tv[0]["unconfirmed_count"]) == (0, len(ROWS))
+    assert tv[1]["confirmed_count"] is None
 
     gen = client.get(f"/api/generations/{g1}").json()
     m0 = gen["marks"][0]

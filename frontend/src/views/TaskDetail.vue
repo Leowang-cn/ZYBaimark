@@ -102,7 +102,7 @@ async function reresolve(v, cred) {
       <div class="panel">
         <table class="list">
           <thead>
-            <tr><th>素材 ID</th><th>名称</th><th>时长</th><th>状态</th><th>版本</th><th></th></tr>
+            <tr><th>素材 ID</th><th>名称</th><th>时长</th><th>状态</th><th title="当前版本中已确认 / 未确认的打点数（不含已删除）">已确认 / 未确认</th><th>版本</th><th></th></tr>
           </thead>
           <tbody>
             <tr v-for="v in task.videos" :key="v.id">
@@ -113,6 +113,12 @@ async function reresolve(v, cred) {
                 <span class="tag" :class="v.status">{{ STATUS_LABEL[v.status] || v.status }}</span>
                 <span v-if="v.status === 'running'" class="muted small"> {{ STAGE_LABEL[v.stage] || v.stage }}</span>
                 <div v-if="v.error" class="err small">{{ v.error }}</div>
+              </td>
+              <td class="mono">
+                <template v-if="v.confirmed_count != null">
+                  <span class="ok-text">{{ v.confirmed_count }}</span> / <span :class="{ 'warn-text': v.unconfirmed_count }">{{ v.unconfirmed_count }}</span>
+                </template>
+                <span v-else class="muted">—</span>
               </td>
               <td>{{ v.generation_count || '—' }}</td>
               <td class="row">
@@ -142,3 +148,8 @@ async function reresolve(v, cred) {
     </div>
   </div>
 </template>
+
+<style scoped>
+.ok-text { color: var(--ok); font-weight: 600; }
+.warn-text { color: var(--warn); font-weight: 600; }
+</style>

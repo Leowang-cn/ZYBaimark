@@ -296,9 +296,13 @@ def parse_ids(raw: list[str]) -> list[str]:
 
 
 def video_summary(v: Video) -> dict:
+    cur = next((g for g in v.generations if g.id == v.current_generation_id), None)
+    live = [m for m in cur.marks if not m.deleted] if cur else []
+    confirmed = sum(1 for m in live if m.confirmed)
     return {"id": v.id, "material_id": v.material_id, "name": v.name, "status": v.status, "stage": v.stage,
             "error": v.error, "duration_s": v.duration_s, "current_generation_id": v.current_generation_id,
-            "generation_count": len(v.generations), "updated_at": v.updated_at.isoformat()}
+            "generation_count": len(v.generations), "updated_at": v.updated_at.isoformat(),
+            "confirmed_count": confirmed if cur else None, "unconfirmed_count": len(live) - confirmed if cur else None}
 
 
 def task_name(custom: str, uname: str) -> str:
