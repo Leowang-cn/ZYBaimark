@@ -52,7 +52,19 @@ cp -n .env.example .env && chmod 600 .env    # 填写 SECRET_KEY、APP_PASSWORD�
 
 ## 部署
 
-按 [docs/部署要求.md](docs/部署要求.md)：安装依赖、`npm ci && npm run build`、`uvicorn backend.main:app`，健康检查 `GET /api/health`。额外注意：
+按 [docs/部署要求.md](docs/部署要求.md)。部署后台填写：
+
+| 项 | 值 |
+| --- | --- |
+| 环境准备命令 | `bash scripts/prepare.sh` |
+| 启动命令 | `.venv/bin/python -m uvicorn backend.main:app --host 0.0.0.0 --port $PORT`（平台不注入 PORT 时写实际端口） |
+| 健康检查 | `/api/health` |
+
+`scripts/prepare.sh` 会检查 Python/Node/ffmpeg 版本、安装 Python 依赖（优先预编译包）、安装无头浏览器（失败只告警）、构建前端；会自动优先使用 `/usr/local/node24|22|20/bin` 下的 Node。
+
+旧系统（glibc 2.17，如 CentOS 7）说明：`greenlet` 已固定在 `<3.3`，因为 3.3 起不再提供该系统的预编译包，源码编译会因 GCC 过旧失败。
+
+额外注意：
 
 - 生产设置 `APP_ENV=production`、`STORAGE_PROVIDER=cos`、`COOKIE_SECURE=true`，缺失时拒绝启动。
 - 扫码登录需要 `playwright install chromium-headless-shell`；Linux 若缺系统库可执行 `.venv/bin/python -m playwright install-deps chromium`（需要 root）。扫码不可用时页面会提示改用“粘贴 Cookie”，其他功能不受影响。
