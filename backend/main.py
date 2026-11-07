@@ -301,6 +301,14 @@ def video_summary(v: Video) -> dict:
             "generation_count": len(v.generations), "updated_at": v.updated_at.isoformat()}
 
 
+def task_name(custom: str, uname: str) -> str:
+    """任务名 = 自定义名称（未填用创建时间）+ Cookie 识别出的人员姓名。"""
+    base = (custom or "").strip() or f"任务 {utcnow():%m-%d %H:%M}"
+    if uname:
+        base = f"{base[:200 - len(uname) - 1]}-{uname}"
+    return base[:200]
+
+
 @app.post("/api/tasks", dependencies=Auth)
 def create_task(body: TaskIn, db: Session = Depends(get_db)):
     check_rules(body.prompt_text)
@@ -323,13 +331,13 @@ def create_task(body: TaskIn, db: Session = Depends(get_db)):
     else:
         raise HTTPException(400, "请先粘贴 Cookie")
     try:
-        ctp.check_login(cookie)
+        uname = str(ctp.check_login(cookie).get("uname") or "").strip()
     except ctp.CtpAuthError as e:
         raise HTTPException(400, str(e)) from e
     except ctp.CtpError as e:
         raise HTTPException(502, str(e)) from e
 
-    task = Task(name=body.name.strip() or f"任务 {utcnow():%m-%d %H:%M}", prompt_text=body.prompt_text,
+    task = Task(name=task_name(body.name, uname), prompt_text=body.prompt_text,
                 cookie_enc=encrypt(cookie), cookie_expire_at=utcnow() + timedelta(hours=s.cookie_ttl_hours))
     db.add(task)
     db.flush()

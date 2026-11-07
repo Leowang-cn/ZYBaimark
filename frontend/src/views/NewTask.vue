@@ -26,6 +26,14 @@ const dupCount = computed(() => tokens.value.length - ids.value.length);
 const validIds = computed(() => ids.value.filter((x) => /^\d{6,25}$/.test(x)));
 const changed = computed(() => diffRules(prompt.value, defaultPrompt.value));
 const isDefaultPrompt = computed(() => !changed.value.length);
+const credBody = computed(() => {
+  const { uname, ...rest } = cred.value || {};
+  return rest;
+});
+const namePreview = computed(() => {
+  const base = name.value.trim() || '任务 <创建时间>';
+  return cred.value?.uname ? `${base}-${cred.value.uname}` : base;
+});
 const canSubmit = computed(() => cred.value && validIds.value.length && !badIds.value.length && !submitting.value);
 const blocker = computed(() => {
   if (!validIds.value.length) return '请输入视频素材 ID';
@@ -55,7 +63,7 @@ async function submit() {
   try {
     const r = await api('/api/tasks', {
       method: 'POST',
-      body: { name: name.value, material_ids: validIds.value, prompt_text: prompt.value, ...cred.value },
+      body: { name: name.value, material_ids: validIds.value, prompt_text: prompt.value, ...credBody.value },
     });
     if (r.videos.some((v) => v.status === 'resolve_failed')) {
       result.value = r;
@@ -110,7 +118,8 @@ async function submit() {
         </div>
         <label class="name-field">
           <span class="muted small">任务名称（选填）</span>
-          <input v-model="name" maxlength="200" placeholder="不填则使用创建时间" />
+          <input v-model="name" maxlength="180" placeholder="不填则使用创建时间" />
+          <span class="muted small">将自动追加登录人员姓名，最终名称：<b>{{ namePreview }}</b></span>
         </label>
       </section>
 

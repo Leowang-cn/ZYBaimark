@@ -21,7 +21,7 @@ function emitState() {
   if (mode.value === 'qr') {
     emit('change', session.value?.status === 'success' ? { login_session_id: session.value.id } : null);
   } else {
-    emit('change', check.value.state === 'ok' ? { cookie_text: cookieText.value } : null);
+    emit('change', check.value.state === 'ok' ? { cookie_text: cookieText.value, uname: check.value.uname } : null);
   }
 }
 

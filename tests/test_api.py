@@ -91,6 +91,7 @@ def test_task_flow_versions_and_export(client, monkeypatch):
     assert r.status_code == 200, r.text
     vids = r.json()["videos"]
     assert [v["status"] for v in vids] == ["queued", "resolve_failed"]
+    assert client.get("/api/tasks").json()[0]["name"].startswith("任务 ")
     vid = vids[0]["id"]
 
     g1 = make_generation(vid, ROWS)
@@ -313,6 +314,19 @@ def test_ctp_check(client, monkeypatch):
         raise ctp.CtpAuthError("x")
     monkeypatch.setattr(ctp, "check_login", expired)
     assert "失效" in client.post("/api/ctp/check", json={"cookie_text": "ZYBIPSCAS=t"}).json()["reason"]
+
+
+def test_task_name_with_uname(client, monkeypatch):
+    from backend.ctp import client as ctp
+    login(client)
+    fake_ctp(monkeypatch)
+    monkeypatch.setattr(ctp, "check_login", lambda c: {"uname": "张三"})
+    body = {"material_ids": ["222222"], "prompt_text": "规则" * 20, "cookie_text": "ZYBIPSCAS=t"}
+    assert client.post("/api/tasks", json={**body, "name": " 三年级第5讲 "}).status_code == 200
+    assert client.post("/api/tasks", json=body).status_code == 200
+    names = [t["name"] for t in client.get("/api/tasks").json()]
+    assert names[1] == "三年级第5讲-张三"
+    assert names[0].startswith("任务 ") and names[0].endswith("-张三")
 
 
 def test_draft_mark(client, monkeypatch):
