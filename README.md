@@ -41,7 +41,7 @@ cp -n .env.example .env && chmod 600 .env    # 填写 SECRET_KEY、APP_PASSWORD�
 
 浏览器打开 `http://127.0.0.1:8000`，输入 `APP_PASSWORD` 进入。
 
-前端开发可另开 `npm run dev`（5173 端口，`/api` 代理到 8000）。
+前端开发可另开 `npm run dev:web`（5173 端口，`/api` 代理到 8000）。`npm start` 等同于 `bash scripts/start.sh`。
 
 测试：
 
@@ -57,7 +57,7 @@ cp -n .env.example .env && chmod 600 .env    # 填写 SECRET_KEY、APP_PASSWORD�
 | 项 | 值 |
 | --- | --- |
 | 环境准备命令 | `bash scripts/prepare.sh` |
-| 启动命令 | `bash scripts/start.sh 8916`（端口换成后台分配的端口；不写参数时用环境变量 `PORT`，再没有则 8000） |
+| 启动命令 | `bash scripts/start.sh 8916`（也接受 `--port 8916 --host 0.0.0.0` 形式；不写端口时用环境变量 `PORT`，再没有则 8000）。不要用 `vite`/`npm run dev`，那是前端开发服务器 |
 | 健康检查 | `/api/health` |
 
 `scripts/prepare.sh` 会检查 Python/Node/ffmpeg 版本、安装 Python 依赖（优先预编译包）、安装无头浏览器（失败只告警）、构建前端；会自动优先使用 `/usr/local/node24|22|20/bin` 下的 Node。

@@ -7,8 +7,9 @@
     "node": ">=20"
   },
   "scripts": {
-    "dev": "vite --config frontend/vite.config.js",
-    "build": "vite build --config frontend/vite.config.js"
+    "start": "bash scripts/start.sh",
+    "build": "vite build --config frontend/vite.config.js",
+    "dev:web": "vite --config frontend/vite.config.js"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.4",
