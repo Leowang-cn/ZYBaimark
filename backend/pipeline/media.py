@@ -47,12 +47,6 @@ def extract_audio(url: str, wav: Path) -> None:
         raise PipelineError("抽取音频失败：" + (r.stderr or "")[-300:])
 
 
-def decode_to_wav(src: Path, wav: Path) -> None:
-    s = get_settings()
-    if _run([s.ffmpeg, "-y", "-v", "error", "-i", str(src), "-ac", "1", "-ar", "16000", str(wav)]).returncode != 0:
-        raise PipelineError("音频解码失败")
-
-
 def to_mp3(wav: Path, mp3: Path, start: float = 0, length: float | None = None) -> None:
     s = get_settings()
     cmd = [s.ffmpeg, "-y", "-v", "error", "-ss", str(start)]

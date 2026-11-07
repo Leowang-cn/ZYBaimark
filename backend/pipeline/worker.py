@@ -14,7 +14,7 @@ from ..config import get_settings
 from ..db import Generation, Mark, Video
 from ..storage import get_storage
 from .extract import extract, finalize
-from .media import PipelineError, decode_to_wav, detect_silences, extract_audio, probe, to_mp3, transcribe
+from .media import PipelineError, detect_silences, extract_audio, probe, transcribe
 
 log = logging.getLogger(__name__)
 
@@ -147,18 +147,9 @@ class Worker:
         need_sil = not art.get("silences")
         if need_asr or need_sil:
             wav = work / "audio.wav"
-            if art.get("audio"):
-                self._set(video_id, stage="audio")
-                mp3 = work / "audio.mp3"
-                store.download(art["audio"], mp3)
-                decode_to_wav(mp3, wav)
-            else:
-                self._set(video_id, stage="audio")
-                extract_audio(url, wav)
-                mp3 = work / "audio.mp3"
-                to_mp3(wav, mp3)
-                store.put_file(_key(video_id, "audio.mp3"), mp3, "audio/mpeg")
-                save_art(audio=_key(video_id, "audio.mp3"))
+            # 音频只作中间产物，不上传 COS：该桶对 mp3 有自动转码规则，会产生额外文件与费用
+            self._set(video_id, stage="audio")
+            extract_audio(url, wav)
             if need_sil:
                 self._set(video_id, stage="silence")
                 sil = detect_silences(wav)
