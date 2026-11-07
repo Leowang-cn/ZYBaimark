@@ -1,6 +1,6 @@
 <script setup>
 // 获取内容生产系统登录态：钉钉扫码（默认）或粘贴 Cookie（兜底）
-import { onUnmounted, ref } from 'vue';
+import { onMounted, onUnmounted, ref } from 'vue';
 import { api } from '../api';
 
 const emit = defineEmits(['change']);
@@ -8,7 +8,19 @@ const mode = ref('qr');
 const session = ref(null);
 const cookieText = ref('');
 const error = ref('');
+const qrUnavailable = ref('');
 let timer;
+
+onMounted(async () => {
+  try {
+    const c = await api('/api/capabilities');
+    if (c.qr_login === false) {
+      qrUnavailable.value = c.qr_login_reason || '服务器不支持扫码登录';
+      mode.value = 'cookie';
+      emitState();
+    }
+  } catch { /* 忽略，保留默认扫码 */ }
+});
 
 function emitState() {
   if (mode.value === 'qr') {
@@ -71,7 +83,8 @@ onUnmounted(() => {
 <template>
   <div class="ctp-login">
     <div class="row" style="margin-bottom: 10px">
-      <button class="sm" :class="{ primary: mode === 'qr' }" @click="switchMode('qr')">钉钉扫码</button>
+      <button class="sm" :class="{ primary: mode === 'qr' }" :disabled="!!qrUnavailable" :title="qrUnavailable"
+        @click="switchMode('qr')">钉钉扫码</button>
       <button class="sm" :class="{ primary: mode === 'cookie' }" @click="switchMode('cookie')">粘贴 Cookie</button>
     </div>
 
@@ -97,6 +110,16 @@ onUnmounted(() => {
     </div>
 
     <div v-else>
+      <p v-if="qrUnavailable" class="small" style="color: var(--warn); margin-top: 0">{{ qrUnavailable }}，请用下面的方式提供登录状态。</p>
+      <details class="small help">
+        <summary>如何获取 Cookie（约 30 秒）</summary>
+        <ol>
+          <li>在 Chrome 中打开并登录 <a href="https://iot-admin.yukework.com/fe-ctpsystem/#/material" target="_blank" rel="noopener">内容生产系统</a>。</li>
+          <li>按 <b>F12</b>（Mac：⌥⌘I）打开开发者工具，切到 <b>Network / 网络</b>，刷新页面。</li>
+          <li>点任意一个名为 <code>list</code>、<code>info</code> 之类的请求 → Headers → Request Headers → 复制整行 <b>Cookie</b> 的值；或右键请求 → Copy → Copy as cURL。</li>
+          <li>粘贴到下面的输入框即可，系统只会提取其中的 ZYBIPSCAS。</li>
+        </ol>
+      </details>
       <textarea v-model="cookieText" rows="3" placeholder="在已登录内容生产系统的浏览器中按 F12 → Network → 任一请求 → 复制 Cookie 或 Copy as cURL，粘贴到这里"
         @input="emitState" />
       <p class="muted small">只会提取其中的 ZYBIPSCAS，加密保存且 24 小时后删除。</p>
@@ -104,3 +127,8 @@ onUnmounted(() => {
     <p v-if="error" class="err">{{ error }}</p>
   </div>
 </template>
+
+<style scoped>
+.help { margin: 0 0 8px; }
+.help ol { margin: 6px 0; padding-left: 20px; line-height: 1.7; }
+</style>

@@ -38,11 +38,31 @@ class LoginManager:
     def __init__(self):
         self.sessions: dict[str, LoginSession] = {}
         self.lock = threading.Lock()
+        self.qr_available: bool | None = None  # None 表示尚未检测
+        self.qr_unavailable_reason = ""
+
+    def check_capability(self) -> None:
+        """启动时在后台试启动一次无头浏览器，判断本机是否支持扫码登录。"""
+        def run():
+            try:
+                from playwright.sync_api import sync_playwright
+
+                with sync_playwright() as p:
+                    p.chromium.launch(headless=True).close()
+                self.qr_available = True
+                log.info("扫码登录：可用")
+            except Exception as e:  # noqa: BLE001
+                self.qr_available = False
+                self.qr_unavailable_reason = f"服务器无法运行无头浏览器（{type(e).__name__}）"
+                log.warning("扫码登录：不可用，将使用粘贴 Cookie。原因：%s", e)
+        threading.Thread(target=run, daemon=True, name="qr-check").start()
 
     def _active(self) -> int:
         return sum(1 for s in self.sessions.values() if s.status in {"starting", "pending"})
 
     def start(self) -> LoginSession:
+        if self.qr_available is False:
+            raise RuntimeError(f"扫码登录不可用：{self.qr_unavailable_reason}，请改用粘贴 Cookie")
         with self.lock:
             self._gc()
             if self._active() >= get_settings().max_login_sessions:
@@ -82,9 +102,11 @@ class LoginManager:
         from playwright.sync_api import sync_playwright
 
         deadline = time.time() + get_settings().login_timeout_s
+        launched = False
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=True)
+                launched = True
                 try:
                     ctx = browser.new_context(viewport={"width": 1280, "height": 800}, locale="zh-CN")
                     page = ctx.new_page()
@@ -106,7 +128,12 @@ class LoginManager:
                     browser.close()
         except Exception as e:  # noqa: BLE001
             log.exception("扫码登录失败")
-            sess.status, sess.error = "error", f"扫码登录不可用（{type(e).__name__}），请改用粘贴 Cookie"
+            if not launched:
+                self.qr_available, self.qr_unavailable_reason = False, f"服务器无法运行无头浏览器（{type(e).__name__}）"
+                sess.error = "服务器不支持扫码登录，请改用粘贴 Cookie"
+            else:
+                sess.error = f"打开登录页失败（{type(e).__name__}），可重试或改用粘贴 Cookie"
+            sess.status = "error"
 
 
 login_manager = LoginManager()

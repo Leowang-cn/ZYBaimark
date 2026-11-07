@@ -67,7 +67,7 @@ cp -n .env.example .env && chmod 600 .env    # 填写 SECRET_KEY、APP_PASSWORD�
 额外注意：
 
 - 生产设置 `APP_ENV=production`、`STORAGE_PROVIDER=cos`、`COOKIE_SECURE=true`，缺失时拒绝启动。
-- 扫码登录需要 `playwright install chromium-headless-shell`；Linux 若缺系统库可执行 `.venv/bin/python -m playwright install-deps chromium`（需要 root）。扫码不可用时页面会提示改用“粘贴 Cookie”，其他功能不受影响。
+- 扫码登录依赖无头浏览器，要求 glibc ≥ 2.28。老系统（如 CentOS 7，glibc 2.17）无法运行，`prepare.sh` 会跳过安装，服务启动时自动检测，新建任务页默认切到“粘贴 Cookie”并给出获取步骤；其他功能不受影响。
 - 部署机需能访问 `iot-admin.yukework.com`、`ips.yukework.com`、`login.dingtalk.com`、`ntresource.cdnjtzy.com` 和大模型代理。
 - 单进程运行（后台任务与扫码会话在进程内）；不要启动多个 worker 进程共用同一数据库。
 - 持久化并备份 `data/app.sqlite` 与 COS 前缀；COS 只保存 `videos/<id>/silences.json`、`transcription.json`。音频只在处理时临时生成、用完即删，不上传 COS（当前桶对 `.mp3` 配置了自动转码，上传会额外生成 HLS 文件并计费）。

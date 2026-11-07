@@ -55,6 +55,7 @@ async def lifespan(_app: FastAPI):
         if not session.scalar(select(DefaultPrompt.id).limit(1)):
             session.add(DefaultPrompt(version=1, content=DEFAULT_PROMPT_FILE.read_text(encoding="utf-8")))
             session.commit()
+    login_manager.check_capability()
     worker.start()
     yield
     worker.shutdown()
@@ -158,6 +159,11 @@ def app_logout(request: Request, response: Response, db: Session = Depends(get_d
 @app.get("/api/auth/me", dependencies=Auth)
 def me():
     return {"ok": True}
+
+
+@app.get("/api/capabilities", dependencies=Auth)
+def capabilities():
+    return {"qr_login": login_manager.qr_available, "qr_login_reason": login_manager.qr_unavailable_reason}
 
 
 @app.get("/api/health")
