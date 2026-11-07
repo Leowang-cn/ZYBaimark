@@ -1,6 +1,7 @@
 """抽题规则：结构化（v2，JSON）与旧版纯文本（v1）两种格式的解析、校验与渲染。
 
 结构化规则以 JSON 字符串存储在原有的 prompt_text 字段中，旧数据无需迁移。
+可选字段 raw 为用户整段粘贴的 Prompt：非空时替代分层规则与示例，基本设置仍生效。
 """
 from __future__ import annotations
 
@@ -70,7 +71,12 @@ def validate(data) -> dict:
         if not isinstance(v, str):
             raise RulesError(f"{k} 必须是文本")
         out[k] = v
-    if not out["b1"].strip():
+    raw = data.get("raw") or ""
+    if not isinstance(raw, str):
+        raise RulesError("整段 Prompt 必须是文本")
+    if raw.strip():
+        out["raw"] = raw
+    elif not out["b1"].strip():
         raise RulesError("“什么算互动题”不能为空")
     examples = data.get("examples") or []
     if not isinstance(examples, list) or len(examples) > 50:
@@ -103,17 +109,21 @@ def target_count(cfg: dict | str, duration: float) -> int:
     return max(1, math.ceil(duration * density(cfg) / 60))
 
 
-def render(cfg: dict | str, duration: float | None = None) -> str:
-    """渲染为发送给模型的规则正文；旧版纯文本原样返回。"""
+def render(cfg: dict | str, duration: float | None = None, bare: bool = False) -> str:
+    """渲染为发送给模型的规则正文；旧版纯文本原样返回。bare=True 时忽略 raw 且不含基本设置，用作整段粘贴的起点。"""
     if isinstance(cfg, str):
         return cfg
     s = cfg["settings"]
     n = f"（本视频约 {target_count(cfg, duration)} 道）" if duration else ""
+    basics = [f"- 目标题量约为每分钟 {s['density']:g} 道{n}，这是整段平均值，质量优先，不得为凑数收录不合格问题。",
+              "- 判断题（是/否、对/错、能/不能）可以收录。" if s["judgment"] else "- 不收录判断题（是/否、对/错、能/不能）。"]
+    if not bare and cfg.get("raw", "").strip():
+        # 整段自定义 Prompt：替代分层规则与示例，基本设置与固定规则仍附加在后并优先生效
+        return "\n".join([cfg["raw"].strip(), "", "【程序设置（与上文冲突时以此为准）】", *basics,
+                          f"- 答案写法：{LETTER_FIRST}", f"- 作答时间点首要规则：{ANCHOR_TEXT[s['anchor']]}"]) + "\n"
     parts = [cfg["role"].strip(), "",
-             "一、基本设置",
-             f"- 目标题量约为每分钟 {s['density']:g} 道{n}，这是整段平均值，质量优先，不得为凑数收录不合格问题。",
-             "- 判断题（是/否、对/错、能/不能）可以收录。" if s["judgment"] else "- 不收录判断题（是/否、对/错、能/不能）。",
-             "", "二、什么算互动题", cfg["b1"].strip(),
+             *([] if bare else ["一、基本设置", *basics, ""]),
+             "二、什么算互动题", cfg["b1"].strip(),
              "", "三、问题怎么写", cfg["b2"].strip(),
              "", "四、答案怎么写", LETTER_FIRST, cfg["b3"].strip(),
              "", "五、同一题多种问法", cfg["d1"].strip(),

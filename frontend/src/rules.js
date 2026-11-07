@@ -28,8 +28,14 @@ export function parseRules(text) {
   }
 }
 
+export function hasRaw(cfg) {
+  return !!(cfg?.raw || '').trim();
+}
+
 export function stringify(cfg) {
-  return JSON.stringify(cfg);
+  if (hasRaw(cfg)) return JSON.stringify(cfg);
+  const { raw, ...rest } = cfg;
+  return JSON.stringify(rest);
 }
 
 export function clone(cfg) {
@@ -49,6 +55,7 @@ export function diffRules(text, defaultText) {
   const sa = a.settings, sb = b.settings;
   if (sa.density !== sb.density) out.push(`题量 ${sa.density} 题/分钟`);
   if (sa.judgment !== sb.judgment) out.push(sa.judgment ? '收录判断题' : '不收录判断题');
+  if ((a.raw || '').trim() !== (b.raw || '').trim()) out.push('整段 Prompt');
   if (sa.anchor !== sb.anchor) out.push(`时间点：${ANCHOR_OPTIONS.find((o) => o.value === sa.anchor)?.label}`);
   for (const l of LAYERS) if ((a[l.key] || '').trim() !== (b[l.key] || '').trim()) out.push(l.title);
   const ea = a.examples || [], eb = b.examples || [];
@@ -60,7 +67,7 @@ export function summarize(text) {
   const c = parseRules(text);
   if (!c) return '旧版纯文本规则';
   const s = c.settings;
-  return `每分钟约 ${s.density} 题 · ${s.judgment ? '收录' : '不收录'}判断题 · 时间点在${ANCHOR_OPTIONS.find((o) => o.value === s.anchor)?.label} · ${c.examples.length} 条示例`;
+  return `${hasRaw(c) ? '整段自定义 Prompt · ' : ''}每分钟约 ${s.density} 题 · ${s.judgment ? '收录' : '不收录'}判断题 · 时间点在${ANCHOR_OPTIONS.find((o) => o.value === s.anchor)?.label} · ${c.examples.length} 条示例`;
 }
 
 export function emptyExample() {

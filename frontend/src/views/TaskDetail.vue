@@ -126,7 +126,8 @@ async function reresolve(v, cred) {
       </div>
     </template>
 
-    <RulesDrawer v-model:open="regenOpen" v-model="regenPrompt" :default-text="defaultPrompt"
+    <RulesDrawer v-model:open="regenOpen" v-model="regenPrompt" :default-text="defaultPrompt" allow-save-default
+      @saved-default="(t) => (defaultPrompt = t)"
       title="修改规则并重新生成" hint="对本任务全部视频重新生成，每个视频产生新版本；已人工修改的版本不会被覆盖。" confirm-text="开始重新生成" @confirm="regenAll" />
 
     <div v-if="resolveFor" class="modal-mask" @click.self="resolveFor = null">

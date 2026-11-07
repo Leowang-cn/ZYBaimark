@@ -209,6 +209,24 @@ def test_rules_effects():
     assert rules.render("旧版纯文本") == "旧版纯文本"
 
 
+def test_rules_raw_prompt():
+    import json as _json
+    from backend import rules
+    cfg = rules.builtin_cfg()
+    cfg["b1"] = ""
+    with pytest.raises(rules.RulesError):
+        rules.load(_json.dumps(cfg))
+    cfg.update(raw="我自己写好的整段 Prompt")
+    cfg["settings"].update(density=0.5, judgment=False)
+    loaded = rules.load(_json.dumps(cfg))
+    out = rules.render(loaded, 400)
+    assert out.startswith("我自己写好的整段 Prompt") and "二、什么算互动题" not in out
+    assert "每分钟 0.5 道" in out and "不收录判断题" in out and rules.target_count(loaded, 400) == 4
+    assert "raw" not in rules.builtin_cfg()
+    bare = rules.render(rules.builtin_cfg(), bare=True)
+    assert "一、基本设置" not in bare and "二、什么算互动题" in bare
+
+
 def test_finalize_and_answers():
     from backend.pipeline.extract import finalize, normalize_answer, parse_ts
 

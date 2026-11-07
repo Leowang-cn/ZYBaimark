@@ -1,8 +1,8 @@
 <script setup>
-// 结构化抽题规则编辑器（抽屉）：A 基本设置 / B 业务规则 / C 示例库 / D 专家细则 / E 系统内置
+// 结构化抽题规则编辑器（抽屉）：A 基本设置 / B 业务规则 / C 示例库 / D 专家细则 / P 整段粘贴 / E 系统内置
 import { computed, ref, watch } from 'vue';
 import { api } from '../api';
-import { ANCHOR_OPTIONS, LAYERS, clone, diffRules, emptyExample, parseRules, stringify } from '../rules';
+import { ANCHOR_OPTIONS, LAYERS, clone, diffRules, emptyExample, hasRaw, parseRules, stringify } from '../rules';
 
 const props = defineProps({
   open: Boolean,
@@ -11,22 +11,29 @@ const props = defineProps({
   title: { type: String, default: '抽题规则' },
   hint: { type: String, default: '修改只对本次任务生效，不影响默认规则。' },
   confirmText: { type: String, default: '使用这份规则' },
+  // 显示“同时保存为默认规则”选项
+  allowSaveDefault: Boolean,
 });
-const emit = defineEmits(['update:open', 'update:modelValue', 'confirm']);
+const emit = defineEmits(['update:open', 'update:modelValue', 'confirm', 'saved-default']);
 
 const cfg = ref(null);
 const legacy = ref('');
 const tab = ref('A');
 const preview = ref(null);
 const previewOpen = ref(false);
+const saveDefault = ref(false);
+const busy = ref(false);
+const err = ref('');
 
 watch(() => props.open, (o) => {
   if (!o) return;
   const parsed = parseRules(props.modelValue);
   cfg.value = parsed ? clone(parsed) : null;
   legacy.value = parsed ? '' : props.modelValue;
-  tab.value = 'A';
+  tab.value = hasRaw(cfg.value) ? 'P' : 'A';
   previewOpen.value = false;
+  saveDefault.value = false;
+  err.value = '';
 });
 
 const defaults = computed(() => parseRules(props.defaultText));
@@ -37,6 +44,7 @@ const tabs = computed(() => [
   { key: 'B', label: '业务规则', dirty: LAYERS.filter((l) => l.group === 'B').some((l) => changes.value.includes(l.title)) },
   { key: 'C', label: `示例库（${cfg.value?.examples.length ?? 0}）`, dirty: changes.value.some((c) => c.startsWith('示例')) },
   { key: 'D', label: '专家细则', dirty: LAYERS.filter((l) => l.group === 'D').some((l) => changes.value.includes(l.title)) },
+  { key: 'P', label: '整段粘贴', dirty: changes.value.includes('整段 Prompt') },
   { key: 'E', label: '系统内置', dirty: false },
 ]);
 
@@ -55,6 +63,15 @@ function upgrade() {
   if (defaults.value) {
     cfg.value = clone(defaults.value);
     legacy.value = '';
+  }
+}
+const rawOn = computed(() => hasRaw(cfg.value));
+async function fillRaw() {
+  try {
+    const r = await api('/api/prompts/render', { method: 'POST', body: { content: stringify(cfg.value), bare: true } });
+    cfg.value.raw = r.text;
+  } catch (e) {
+    err.value = `生成全文失败：${e.message}`;
   }
 }
 function addExample() {
@@ -79,9 +96,23 @@ async function loadPreview() {
 function close() {
   emit('update:open', false);
 }
-function confirm() {
-  emit('update:modelValue', draftText.value);
-  emit('confirm', draftText.value);
+async function confirm() {
+  const text = draftText.value;
+  if (saveDefault.value && changes.value.length) {
+    busy.value = true;
+    err.value = '';
+    try {
+      await api('/api/prompts/default', { method: 'PUT', body: { content: text } });
+      emit('saved-default', text);
+    } catch (e) {
+      err.value = `保存默认规则失败：${e.message}`;
+      return;
+    } finally {
+      busy.value = false;
+    }
+  }
+  emit('update:modelValue', text);
+  emit('confirm', text);
   close();
 }
 </script>
@@ -152,6 +183,7 @@ function confirm() {
         </section>
 
         <section v-else-if="tab === 'B' || tab === 'D'" class="pane">
+          <div v-if="rawOn" class="legacy-tip small">当前使用“整段粘贴”的 Prompt，本页内容不会发送给 AI。<button class="sm link" @click="tab = 'P'">去查看</button></div>
           <h3>{{ tab === 'B' ? '业务规则' : '专家细则' }}</h3>
           <p class="muted small">{{ tab === 'B' ? '教研可调整的核心规则。' : '一般无需修改，调整前建议先小范围试用。' }}</p>
           <div v-for="l in LAYERS.filter((x) => x.group === tab)" :key="l.key" class="field">
@@ -167,6 +199,7 @@ function confirm() {
         </section>
 
         <section v-else-if="tab === 'C'" class="pane">
+          <div v-if="rawOn" class="legacy-tip small">当前使用“整段粘贴”的 Prompt，本页内容不会发送给 AI。<button class="sm link" @click="tab = 'P'">去查看</button></div>
           <div class="row">
             <h3 style="margin: 0">示例库</h3>
             <span class="muted small">正例教 AI 怎么做，反例教 AI 不要做什么。具体、贴近真实课堂的示例效果最好。</span>
@@ -195,6 +228,21 @@ function confirm() {
           <div v-if="!cfg.examples.length" class="muted">暂无示例</div>
         </section>
 
+        <section v-else-if="tab === 'P'" class="pane col-pane">
+          <div class="row">
+            <h3 style="margin: 0">整段粘贴</h3>
+            <span v-if="rawOn" class="tag warn">已启用</span>
+            <span class="spacer" />
+            <button class="sm" @click="fillRaw">用当前分层规则生成全文</button>
+            <button class="sm" :disabled="!rawOn" @click="cfg.raw = ''">清空（改回分层规则）</button>
+          </div>
+          <p class="muted small">
+            把自己编辑好的完整 Prompt 粘到这里即可。填写后它将替代“业务规则、示例库、专家细则”发送给 AI；
+            “基本设置”（题量、判断题、时间点）和答案字母优先规则仍会附加在末尾并优先生效，系统内置的流程与输出格式也照常由程序保证。清空即恢复使用分层规则。
+          </p>
+          <textarea v-model="cfg.raw" class="small grow raw" placeholder="在此粘贴完整 Prompt……" />
+        </section>
+
         <section v-else class="pane">
           <h3>系统内置</h3>
           <p class="muted small">以下由程序保证，不在规则中编辑，列出供了解：</p>
@@ -212,8 +260,12 @@ function confirm() {
         <button :disabled="!changes.length" @click="resetAll">全部恢复默认</button>
         <span v-if="changes.length" class="muted small changes" :title="changes.join('、')">已修改：{{ changes.join('、') }}</span>
         <span class="spacer" />
+        <span v-if="err" class="small err">{{ err }}</span>
+        <label v-if="allowSaveDefault && changes.length" class="small save-default" title="保存后成为新的默认规则版本，之后新建的任务都会使用">
+          <input v-model="saveDefault" type="checkbox" /> 同时保存为默认规则
+        </label>
         <button @click="close">取消</button>
-        <button class="primary" :disabled="cfg ? !cfg.b1.trim() : legacy.trim().length < 20" @click="confirm">{{ confirmText }}</button>
+        <button class="primary" :disabled="busy || (cfg ? !cfg.b1.trim() && !rawOn : legacy.trim().length < 20)" @click="confirm">{{ confirmText }}</button>
       </footer>
     </aside>
   </div>
@@ -227,6 +279,10 @@ function confirm() {
 .body { flex: 1; min-height: 0; padding: 14px 18px; display: flex; gap: 16px; }
 .body.col { flex-direction: column; gap: 8px; }
 .grow { flex: 1; resize: none; }
+.col-pane { display: flex; flex-direction: column; gap: 8px; }
+.raw { min-height: 360px; line-height: 1.65; }
+.save-default { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; white-space: nowrap; }
+.err { color: var(--danger); }
 nav { width: 170px; flex-shrink: 0; border-right: 1px solid var(--border); padding-right: 8px; }
 nav a { display: flex; align-items: center; justify-content: space-between; padding: 9px 10px; border-radius: 6px; color: var(--text); cursor: pointer; text-decoration: none; }
 nav a:hover { background: #f3f4f6; }

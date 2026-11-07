@@ -217,6 +217,7 @@ def check_rules(text: str) -> None:
 class RenderIn(BaseModel):
     content: str = Field(max_length=60000)
     duration_s: float | None = Field(default=None, ge=0)
+    bare: bool = False
 
 
 @app.post("/api/prompts/render", dependencies=Auth)
@@ -226,7 +227,7 @@ def render_rules(body: RenderIn):
         cfg = rules.load(body.content)
     except rules.RulesError as e:
         raise HTTPException(400, str(e)) from e
-    return {"text": rules.render(cfg, body.duration_s), "system": rules.SYSTEM_DESCRIPTION,
+    return {"text": rules.render(cfg, body.duration_s, body.bare), "system": rules.SYSTEM_DESCRIPTION,
             "structured": isinstance(cfg, dict)}
 
 

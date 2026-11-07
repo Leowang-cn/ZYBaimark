@@ -428,7 +428,8 @@ function onTrackClick(e) {
       </section>
     </div>
 
-    <RulesDrawer v-model:open="regenOpen" v-model="regenPrompt" :default-text="defaultPrompt"
+    <RulesDrawer v-model:open="regenOpen" v-model="regenPrompt" :default-text="defaultPrompt" allow-save-default
+      @saved-default="(t) => (defaultPrompt = t)"
       title="修改规则并重新生成" hint="复用已有音频与转写，只重新调用 AI，生成新版本；当前版本的人工修改不会被覆盖。" confirm-text="开始重新生成" @confirm="regen" />
   </div>
 </template>
