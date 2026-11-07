@@ -57,7 +57,7 @@ cp -n .env.example .env && chmod 600 .env    # 填写 SECRET_KEY、APP_PASSWORD�
 | 项 | 值 |
 | --- | --- |
 | 环境准备命令 | `bash scripts/prepare.sh` |
-| 启动命令 | `.venv/bin/python -m uvicorn backend.main:app --host 0.0.0.0 --port $PORT`（平台不注入 PORT 时写实际端口） |
+| 启动命令 | `bash scripts/start.sh 8916`（端口换成后台分配的端口；不写参数时用环境变量 `PORT`，再没有则 8000） |
 | 健康检查 | `/api/health` |
 
 `scripts/prepare.sh` 会检查 Python/Node/ffmpeg 版本、安装 Python 依赖（优先预编译包）、安装无头浏览器（失败只告警）、构建前端；会自动优先使用 `/usr/local/node24|22|20/bin` 下的 Node。
