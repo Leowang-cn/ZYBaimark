@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parent.parent
 # 平台注入的环境变量优先，不被 .env 覆盖
+PLATFORM_ENV_KEYS = frozenset(os.environ)
 load_dotenv(ROOT / ".env", override=False)
 
 
@@ -20,6 +21,20 @@ def _clean(v: str | None) -> str:
     """去掉部署平台粘贴时可能带入的引号、行尾注释和空白。"""
     v = (v or "").split("#", 1)[0].strip().strip("\"'“”‘’").strip()
     return v.lower()
+
+
+def _secret(name: str) -> str:
+    """口令/令牌：去掉首尾空白、换行和成对引号（部署平台粘贴时常带入），保留大小写与 #。"""
+    v = (os.getenv(name) or "").strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+        v = v[1:-1].strip()
+    return v
+
+
+def env_source(name: str) -> str:
+    if name in PLATFORM_ENV_KEYS:
+        return "部署平台环境变量"
+    return "项目 .env 文件" if os.getenv(name) else "未配置"
 
 
 def _bool(name: str, default: bool = False) -> bool:
@@ -82,8 +97,8 @@ def load_settings() -> Settings:
     s = Settings(
         app_env=_clean(os.getenv("APP_ENV")) or "development",
         secret_key=os.getenv("SECRET_KEY", ""),
-        app_password=os.getenv("APP_PASSWORD", ""),
-        access_token=(os.getenv("ACCESS_TOKEN") or "").strip(),
+        app_password=_secret("APP_PASSWORD"),
+        access_token=_secret("ACCESS_TOKEN"),
         database_url=os.getenv("DATABASE_URL") or f"sqlite:///{data_dir / 'app.sqlite'}",
         data_dir=data_dir,
         storage_provider=_clean(os.getenv("STORAGE_PROVIDER")) or "local",

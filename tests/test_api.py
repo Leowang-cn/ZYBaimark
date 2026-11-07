@@ -297,6 +297,8 @@ def test_env_value_cleanup(monkeypatch):
         monkeypatch.setenv(k, v)
     s = config.load_settings()
     assert s.app_env == "development" and s.storage_provider == "local" and s.cookie_secure is False
+    monkeypatch.setenv("APP_PASSWORD", ' "Ab#12345" \n')
+    assert config.load_settings().app_password == "Ab#12345"
 
 
 def test_qr_login_disabled(client):

@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from . import db as dbm
 from . import rules
-from .config import ROOT, get_settings
+from .config import ROOT, env_source, get_settings
 from .ctp import client as ctp
 # 钉钉扫码登录暂停使用（依赖 Playwright 无头浏览器，部署环境不稳定）；恢复时取消以下注释
 # from .ctp.login import login_manager
@@ -60,6 +60,8 @@ async def lifespan(_app: FastAPI):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     ensure_data_dir(get_settings().data_dir)
     log.info("ACCESS_TOKEN：%s", "已配置" if get_settings().access_token else "未配置（仅能用口令登录）")
+    # 不打印口令本身，只给来源与长度，便于核对线上实际生效的是哪个值
+    log.info("APP_PASSWORD：来自%s，%d 位", env_source("APP_PASSWORD"), len(get_settings().app_password))
     dbm.init_db()
     with dbm.SessionLocal() as session:
         seed_default_rules(session)
@@ -139,7 +141,7 @@ def app_login(request: Request, response: Response, body: LoginIn | None = None,
     body = body or LoginIn()
     if not login_limiter.allow(client_ip(request)):
         raise HTTPException(429, "尝试过于频繁，请稍后再试")
-    if not check_password(body.password):
+    if not check_password(body.password.strip()):
         raise HTTPException(401, "口令错误")
     if get_settings().cookie_secure and not is_https(request):
         # 浏览器会丢弃 HTTP 下的 Secure Cookie，登录看似成功却立即失效
