@@ -32,10 +32,22 @@ DEFAULT_PROMPT_FILE = ROOT / "prompts" / "default.md"
 FRONTEND_DIST = ROOT / "frontend" / "dist"
 
 
+def ensure_data_dir(path) -> None:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / ".write-test"
+        probe.write_text("ok")
+        probe.unlink()
+    except OSError as e:
+        raise RuntimeError(f"数据目录 {path} 无法创建或不可写（{e.strerror}）。"
+                           "请把 DATA_DIR 改为有写权限的路径，或删除 DATA_DIR 使用项目内 data/") from e
+    log.info("数据目录：%s", path.resolve())
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    get_settings()
+    ensure_data_dir(get_settings().data_dir)
     dbm.init_db()
     with dbm.SessionLocal() as session:
         if not session.scalar(select(DefaultPrompt.id).limit(1)):
