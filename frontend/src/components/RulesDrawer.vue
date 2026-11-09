@@ -13,6 +13,7 @@ const props = defineProps({
   confirmText: { type: String, default: '使用这份规则' },
   // 显示“同时保存为默认规则”选项
   allowSaveDefault: Boolean,
+  readOnly: Boolean,
 });
 const emit = defineEmits(['update:open', 'update:modelValue', 'confirm', 'saved-default']);
 
@@ -34,7 +35,7 @@ watch(() => props.open, (o) => {
   previewOpen.value = false;
   saveDefault.value = false;
   err.value = '';
-});
+}, { immediate: true });
 
 const defaults = computed(() => parseRules(props.defaultText));
 const draftText = computed(() => (cfg.value ? stringify(cfg.value) : legacy.value));
@@ -97,6 +98,10 @@ function close() {
   emit('update:open', false);
 }
 async function confirm() {
+  if (props.readOnly) {
+    close();
+    return;
+  }
   const text = draftText.value;
   if (saveDefault.value && changes.value.length) {
     busy.value = true;
@@ -135,10 +140,11 @@ async function confirm() {
       <!-- 旧版纯文本规则 -->
       <div v-if="!cfg && !previewOpen" class="body col">
         <div class="legacy-tip small">
-          这是旧版纯文本规则（v1）。可以直接编辑全文，或
-          <button class="sm link" :disabled="!defaults" @click="upgrade">换成新版结构化默认规则</button>。
+          这是旧版纯文本规则（v1）。<template v-if="!readOnly">可以直接编辑全文，或
+            <button class="sm link" :disabled="!defaults" @click="upgrade">换成新版结构化默认规则</button>。</template>
+          <template v-else>当前为只读查看。</template>
         </div>
-        <textarea v-model="legacy" class="mono small grow" />
+        <textarea v-model="legacy" :readonly="readOnly" class="mono small grow" />
       </div>
 
       <div v-else-if="previewOpen" class="body col">
@@ -159,21 +165,21 @@ async function confirm() {
           <div class="field">
             <label>题量密度</label>
             <div class="row">
-              <input v-model.number="cfg.settings.density" type="range" min="0.2" max="3" step="0.1" style="width: 240px" />
-              <input v-model.number="cfg.settings.density" type="number" min="0.2" max="3" step="0.1" style="width: 70px" />
+              <input v-model.number="cfg.settings.density" type="range" min="0.2" max="3" step="0.1" style="width: 240px" :disabled="readOnly" />
+              <input v-model.number="cfg.settings.density" type="number" min="0.2" max="3" step="0.1" style="width: 70px" :disabled="readOnly" />
               <span class="muted small">题/分钟（10 分钟视频约 {{ Math.max(1, Math.ceil(10 * cfg.settings.density)) }} 题）</span>
             </div>
             <div class="muted small">整段平均值，质量优先；AI 不会为凑数收录不合格问题。</div>
           </div>
           <div class="field">
             <label>判断题</label>
-            <label class="radio"><input v-model="cfg.settings.judgment" type="radio" :value="true" /> 收录（是/否、对/错、能/不能）</label>
-            <label class="radio"><input v-model="cfg.settings.judgment" type="radio" :value="false" /> 不收录</label>
+            <label class="radio"><input v-model="cfg.settings.judgment" type="radio" :value="true" :disabled="readOnly" /> 收录（是/否、对/错、能/不能）</label>
+            <label class="radio"><input v-model="cfg.settings.judgment" type="radio" :value="false" :disabled="readOnly" /> 不收录</label>
           </div>
           <div class="field">
             <label>作答时间点放在</label>
             <label v-for="o in ANCHOR_OPTIONS" :key="o.value" class="radio">
-              <input v-model="cfg.settings.anchor" type="radio" :value="o.value" /> {{ o.label }} <span class="muted small">{{ o.desc }}</span>
+              <input v-model="cfg.settings.anchor" type="radio" :value="o.value" :disabled="readOnly" /> {{ o.label }} <span class="muted small">{{ o.desc }}</span>
             </label>
           </div>
           <div class="field">
@@ -192,9 +198,9 @@ async function confirm() {
               <span class="muted small">{{ l.hint }}</span>
               <span v-if="changes.includes(l.title)" class="tag warn">已修改</span>
               <span class="spacer" />
-              <button class="sm link" :disabled="!changes.includes(l.title)" @click="resetField(l.key)">恢复默认</button>
+              <button v-if="!readOnly" class="sm link" :disabled="!changes.includes(l.title)" @click="resetField(l.key)">恢复默认</button>
             </div>
-            <textarea v-model="cfg[l.key]" class="small" :rows="l.key === 'b1' ? 16 : l.key === 'role' ? 3 : 8" />
+            <textarea v-model="cfg[l.key]" class="small" :readonly="readOnly" :rows="l.key === 'b1' ? 16 : l.key === 'role' ? 3 : 8" />
           </div>
         </section>
 
@@ -204,25 +210,25 @@ async function confirm() {
             <h3 style="margin: 0">示例库</h3>
             <span class="muted small">正例教 AI 怎么做，反例教 AI 不要做什么。具体、贴近真实课堂的示例效果最好。</span>
             <span class="spacer" />
-            <button class="sm" :disabled="!changes.some((c) => c.startsWith('示例'))" @click="resetField('examples')">恢复默认示例</button>
-            <button class="sm primary" @click="addExample">＋ 新增示例</button>
+            <button v-if="!readOnly" class="sm" :disabled="!changes.some((c) => c.startsWith('示例'))" @click="resetField('examples')">恢复默认示例</button>
+            <button v-if="!readOnly" class="sm primary" @click="addExample">＋ 新增示例</button>
           </div>
           <div v-for="(ex, i) in cfg.examples" :key="i" class="example" :class="ex.kind">
             <div class="row">
-              <select v-model="ex.kind" class="sm-select">
+              <select v-model="ex.kind" class="sm-select" :disabled="readOnly">
                 <option value="positive">正例</option>
                 <option value="negative">反例</option>
               </select>
-              <input v-model="ex.title" placeholder="标题，如：选择题·字母优先" style="flex: 1" />
-              <button class="sm" :disabled="i === 0" title="上移" @click="moveExample(i, -1)">↑</button>
-              <button class="sm" :disabled="i === cfg.examples.length - 1" title="下移" @click="moveExample(i, 1)">↓</button>
-              <button class="sm danger" @click="cfg.examples.splice(i, 1)">删除</button>
+              <input v-model="ex.title" :readonly="readOnly" placeholder="标题，如：选择题·字母优先" style="flex: 1" />
+              <button v-if="!readOnly" class="sm" :disabled="i === 0" title="上移" @click="moveExample(i, -1)">↑</button>
+              <button v-if="!readOnly" class="sm" :disabled="i === cfg.examples.length - 1" title="下移" @click="moveExample(i, 1)">↓</button>
+              <button v-if="!readOnly" class="sm danger" @click="cfg.examples.splice(i, 1)">删除</button>
             </div>
-            <label class="ex-l">老师原话<textarea v-model="ex.original" rows="2" class="small" /></label>
-            <label class="ex-l">正确做法<textarea v-model="ex.correct" rows="2" class="small" /></label>
+            <label class="ex-l">老师原话<textarea v-model="ex.original" :readonly="readOnly" rows="2" class="small" /></label>
+            <label class="ex-l">正确做法<textarea v-model="ex.correct" :readonly="readOnly" rows="2" class="small" /></label>
             <div class="row" style="align-items: flex-start">
-              <label class="ex-l" style="flex: 1">错误做法（选填）<textarea v-model="ex.wrong" rows="2" class="small" /></label>
-              <label class="ex-l" style="flex: 1">说明（选填）<textarea v-model="ex.note" rows="2" class="small" /></label>
+              <label class="ex-l" style="flex: 1">错误做法（选填）<textarea v-model="ex.wrong" :readonly="readOnly" rows="2" class="small" /></label>
+              <label class="ex-l" style="flex: 1">说明（选填）<textarea v-model="ex.note" :readonly="readOnly" rows="2" class="small" /></label>
             </div>
           </div>
           <div v-if="!cfg.examples.length" class="muted">暂无示例</div>
@@ -233,14 +239,14 @@ async function confirm() {
             <h3 style="margin: 0">整段粘贴</h3>
             <span v-if="rawOn" class="tag warn">已启用</span>
             <span class="spacer" />
-            <button class="sm" @click="fillRaw">用当前分层规则生成全文</button>
-            <button class="sm" :disabled="!rawOn" @click="cfg.raw = ''">清空（改回分层规则）</button>
+            <button v-if="!readOnly" class="sm" @click="fillRaw">用当前分层规则生成全文</button>
+            <button v-if="!readOnly" class="sm" :disabled="!rawOn" @click="cfg.raw = ''">清空（改回分层规则）</button>
           </div>
           <p class="muted small">
             把自己编辑好的完整 Prompt 粘到这里即可。填写后它将替代“业务规则、示例库、专家细则”发送给 AI；
             “基本设置”（题量、判断题、时间点）和答案字母优先规则仍会附加在末尾并优先生效，系统内置的流程与输出格式也照常由程序保证。清空即恢复使用分层规则。
           </p>
-          <textarea v-model="cfg.raw" class="small grow raw" placeholder="在此粘贴完整 Prompt……" />
+          <textarea v-model="cfg.raw" :readonly="readOnly" class="small grow raw" placeholder="在此粘贴完整 Prompt……" />
         </section>
 
         <section v-else class="pane">
@@ -257,7 +263,7 @@ async function confirm() {
       </div>
 
       <footer>
-        <button :disabled="!changes.length" @click="resetAll">全部恢复默认</button>
+        <button v-if="!readOnly" :disabled="!changes.length" @click="resetAll">全部恢复默认</button>
         <span v-if="changes.length" class="muted small changes" :title="changes.join('、')">已修改：{{ changes.join('、') }}</span>
         <span class="spacer" />
         <span v-if="err" class="small err">{{ err }}</span>

@@ -79,6 +79,6 @@ function changesFrom(v) {
       title="编辑默认规则" hint="保存后成为新的默认规则（新版本），只影响之后新建的任务。" confirm-text="保存为新版本" @confirm="save" />
     <RulesDrawer v-if="viewing" :open="true" :model-value="viewing.content" :default-text="current?.content || ''"
       :title="`默认规则 v${viewing.version}（只读查看）`" hint="可预览内容；如需恢复，请关闭后点“基于此版本编辑”。" confirm-text="关闭"
-      @update:open="viewing = null" @confirm="viewing = null" />
+      read-only @update:open="viewing = null" @confirm="viewing = null" />
   </div>
 </template>
