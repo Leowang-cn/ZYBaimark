@@ -11,7 +11,7 @@ import requests
 from ..config import get_settings
 
 ASR_CHUNK_S = 20 * 60
-PAUSE_MIN_S = 0.5
+PAUSE_MIN_S = 0.3
 
 
 class PipelineError(Exception):

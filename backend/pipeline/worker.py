@@ -15,7 +15,7 @@ from ..config import get_settings
 from ..db import Generation, Mark, Video
 from ..storage import get_storage
 from .extract import extract, finalize
-from .media import PipelineError, detect_silences, extract_audio, probe, transcribe
+from .media import PAUSE_MIN_S, PipelineError, detect_silences, extract_audio, probe, transcribe
 
 log = logging.getLogger(__name__)
 
@@ -150,7 +150,8 @@ class Worker:
             save_art(probed=True)
 
         need_asr = not art.get("transcription")
-        need_sil = not art.get("silences")
+        # 停顿阈值调整后，按旧阈值缓存的静音结果需要重新检测
+        need_sil = not art.get("silences") or art.get("silence_min_s", 0.5) != PAUSE_MIN_S
         if need_asr or need_sil:
             wav = work / "audio.wav"
             # 音频只作中间产物，不上传 COS：该桶对 mp3 有自动转码规则，会产生额外文件与费用
@@ -160,7 +161,7 @@ class Worker:
                 self._set(video_id, stage="silence")
                 sil = detect_silences(wav)
                 store.put_bytes(_key(material_id, run_id, "silences.json"), json.dumps(sil).encode(), "application/json")
-                save_art(silences=_key(material_id, run_id, "silences.json"))
+                save_art(silences=_key(material_id, run_id, "silences.json"), silence_min_s=PAUSE_MIN_S)
             if need_asr:
                 self._set(video_id, stage="asr")
                 tr = transcribe(wav, duration, work)

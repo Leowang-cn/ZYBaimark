@@ -11,10 +11,12 @@ import math
 from .config import ROOT
 
 SCHEMA = 2
-BUILTIN_FILE = ROOT / "prompts" / "default_v2.json"
+BUILTIN_FILE = ROOT / "prompts" / "default_v3.json"
+# 历史内置默认规则：数据库当前默认与其中之一完全相同（未被人工修改）时，启动时自动升级到新内置版本
+LEGACY_BUILTIN_FILES = (ROOT / "prompts" / "default_v2.json",)
+MIN_DENSITY = 0.65
 TEXT_FIELDS = ("role", "b1", "b2", "b3", "d1", "d2")
 EXAMPLE_FIELDS = ("title", "original", "correct", "wrong", "note")
-JUDGMENT_ANSWERS = {"是", "否", "对", "错", "能", "不能", "对的", "错的", "正确", "错误", "√", "×"}
 
 ANCHOR_TEXT = {
     "instruction": "问题后有“选一选、算一算、填一填、想一想”等互动指令，且指令后有真实作答停顿时，锚定在指令最后一个字说完处。",
@@ -29,7 +31,7 @@ SYSTEM_DESCRIPTION = """以下由程序保证，不需要也不应在规则中�
 3. 输出格式：JSON；时间点只输出“锚点分段 + 锚点处最后几个字”，由程序换算为 HH:MM:SS.mmm 并对齐到附近的停顿。
 4. 复核要求：第 3 轮按业务规则、专家细则和示例逐题检查，并做反向核验（仅凭问题和答案能否定位回原话），不符合的修改或删除。
 5. 程序校验：原话匹配度、时间是否越界、锚点后是否有停顿、相邻题是否过近、答案格式规范化（“C选项”→“C”）、空值；
-   基本设置为“不收录判断题”时，答案为是/否、对/错等的题目会被标记待复核。未通过的标记“待人工复核”。"""
+   未通过的标记“待人工复核”。"""
 
 
 class RulesError(ValueError):
@@ -40,18 +42,20 @@ def is_structured(text: str) -> bool:
     return (text or "").lstrip().startswith("{")
 
 
-def load(text: str) -> dict | str:
-    """结构化规则返回校验后的 dict，旧版纯文本原样返回。"""
+def load(text: str, strict: bool = False) -> dict | str:
+    """结构化规则返回校验后的 dict，旧版纯文本原样返回。
+
+    strict=False 用于读取已保存的规则：密度低于下限时按下限处理，避免旧任务因下限调整而无法运行。"""
     if not is_structured(text):
         return text
     try:
         data = json.loads(text)
     except json.JSONDecodeError as e:
         raise RulesError("规则格式错误（不是合法 JSON）") from e
-    return validate(data)
+    return validate(data, strict)
 
 
-def validate(data) -> dict:
+def validate(data, strict: bool = True) -> dict:
     if not isinstance(data, dict) or data.get("schema") != SCHEMA:
         raise RulesError("规则格式错误（schema 不是 2）")
     s = data.get("settings") or {}
@@ -59,13 +63,15 @@ def validate(data) -> dict:
         density = float(s.get("density", 1.0))
     except (TypeError, ValueError) as e:
         raise RulesError("题量密度必须是数字") from e
-    if not 0.2 <= density <= 3:
-        raise RulesError("题量密度必须在 0.2–3 题/分钟之间")
+    if not strict and 0 < density < MIN_DENSITY:
+        density = MIN_DENSITY
+    if not MIN_DENSITY <= density <= 3:
+        raise RulesError(f"题量密度必须在 {MIN_DENSITY:g}–3 题/分钟之间")
     anchor = s.get("anchor", "instruction")
     if anchor not in ANCHOR_TEXT:
         raise RulesError("时间点偏好只能是 instruction 或 question")
     out = {"schema": SCHEMA,
-           "settings": {"density": round(density, 2), "judgment": bool(s.get("judgment", True)), "anchor": anchor}}
+           "settings": {"density": round(density, 2), "anchor": anchor}}
     for k in TEXT_FIELDS:
         v = data.get(k, "")
         if not isinstance(v, str):
@@ -94,15 +100,11 @@ def validate(data) -> dict:
 
 
 def check_text(text: str) -> None:
-    load(text)
+    load(text, strict=True)
 
 
 def density(cfg: dict | str) -> float:
     return cfg["settings"]["density"] if isinstance(cfg, dict) else 1.0
-
-
-def allow_judgment(cfg: dict | str) -> bool:
-    return cfg["settings"]["judgment"] if isinstance(cfg, dict) else True
 
 
 def target_count(cfg: dict | str, duration: float) -> int:
@@ -116,7 +118,7 @@ def render(cfg: dict | str, duration: float | None = None, bare: bool = False) -
     s = cfg["settings"]
     n = f"（本视频约 {target_count(cfg, duration)} 道）" if duration else ""
     basics = [f"- 目标题量约为每分钟 {s['density']:g} 道{n}，这是整段平均值，质量优先，不得为凑数收录不合格问题。",
-              "- 判断题（是/否、对/错、能/不能）可以收录。" if s["judgment"] else "- 不收录判断题（是/否、对/错、能/不能）。"]
+              "- 判断题（是/否、对/错、能/不能）可以收录。"]
     if not bare and cfg.get("raw", "").strip():
         # 整段自定义 Prompt：替代分层规则与示例，基本设置与固定规则仍附加在后并优先生效
         return "\n".join([cfg["raw"].strip(), "", "【程序设置（与上文冲突时以此为准）】", *basics,
@@ -142,6 +144,14 @@ def render(cfg: dict | str, duration: float | None = None, bare: bool = False) -
 
 def builtin_text() -> str:
     return BUILTIN_FILE.read_text(encoding="utf-8")
+
+
+def is_legacy_builtin(text: str) -> bool:
+    try:
+        cur = json.loads(text)
+    except json.JSONDecodeError:
+        return False
+    return any(cur == json.loads(p.read_text(encoding="utf-8")) for p in LEGACY_BUILTIN_FILES)
 
 
 def builtin_cfg() -> dict:

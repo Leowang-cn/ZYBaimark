@@ -162,6 +162,8 @@ def test_default_prompt_versions(client):
     assert p["version"] == 1 and cfg["schema"] == 2 and "互动" in cfg["b1"]
     assert client.put("/api/prompts/default", json={"content": p["content"] + "x"}).status_code == 400
     cfg["settings"]["density"] = 0.5
+    assert client.put("/api/prompts/default", json={"content": _json.dumps(cfg)}).status_code == 400
+    cfg["settings"]["density"] = 0.8
     assert client.put("/api/prompts/default", json={"content": _json.dumps(cfg)}).json()["version"] == 2
     assert len(client.get("/api/prompts/default/versions").json()) == 2
     cfg["settings"]["density"] = 9
@@ -192,6 +194,18 @@ def test_seed_appends_v2_over_legacy(tmp_path, monkeypatch):
         seed_default_rules(s)
         vs = s.scalars(select(DefaultPrompt).order_by(DefaultPrompt.version)).all()
         assert [v.version for v in vs] == [1, 2] and rules.is_structured(vs[1].content)
+        assert vs[1].content == rules.builtin_text()
+        # 未修改过的旧内置 v2 自动升级为当前内置；人工修改过的不覆盖
+        s.add(DefaultPrompt(version=3, content=rules.LEGACY_BUILTIN_FILES[0].read_text(encoding="utf-8")))
+        s.commit()
+        seed_default_rules(s)
+        seed_default_rules(s)
+        vs = s.scalars(select(DefaultPrompt).order_by(DefaultPrompt.version)).all()
+        assert [v.version for v in vs] == [1, 2, 3, 4] and vs[3].content == rules.builtin_text()
+        s.add(DefaultPrompt(version=5, content=rules.builtin_text().replace("必须以老师原话为基础", "人工修改")))
+        s.commit()
+        seed_default_rules(s)
+        assert len(s.scalars(select(DefaultPrompt)).all()) == 5
 
 
 def test_rules_effects():
@@ -200,14 +214,20 @@ def test_rules_effects():
     from backend.pipeline.extract import finalize
     cfg = rules.builtin_cfg()
     assert rules.target_count(cfg, 400) == 7
-    cfg["settings"].update(density=0.5, judgment=False, anchor="question")
+    cfg["settings"].update(density=0.75, anchor="question")
     text = _json.dumps(cfg)
-    assert rules.target_count(rules.load(text), 400) == 4
+    assert rules.target_count(rules.load(text), 400) == 5
     out = rules.render(rules.load(text), 400)
-    assert "不收录判断题" in out and "问题本身最后一个字" in out and "每分钟 0.5 道" in out
+    assert "可以收录" in out and "问题本身最后一个字" in out and "每分钟 0.75 道" in out
     tr = {"segments": [{"id": "s1", "start": 0, "end": 3, "text": "这样对不对呢？你来判断一下"}], "words": []}
-    rows = finalize([{"question": "这样对不对呢？你来判断一下", "answer": "对", "anchor_segment": "s1"}], tr, [], 10, text)
-    assert "不收录判断题" in rows[0]["review_reason"]
+    # 判断题不再有“不收录”选项：旧规则里的 judgment=false 被忽略，判断题答案不会被标记
+    old = dict(cfg, settings=dict(cfg["settings"], judgment=False, density=0.5))
+    old_text = _json.dumps(old)
+    assert "judgment" not in rules.load(old_text)["settings"] and rules.density(rules.load(old_text)) == 0.65
+    with pytest.raises(rules.RulesError):
+        rules.check_text(old_text)
+    rows = finalize([{"question": "这样对不对呢？你来判断一下", "answer": "对", "anchor_segment": "s1"}], tr, [], 10, old_text)
+    assert "判断题" not in rows[0]["review_reason"]
     assert rules.render("旧版纯文本") == "旧版纯文本"
 
 
@@ -219,11 +239,11 @@ def test_rules_raw_prompt():
     with pytest.raises(rules.RulesError):
         rules.load(_json.dumps(cfg))
     cfg.update(raw="我自己写好的整段 Prompt")
-    cfg["settings"].update(density=0.5, judgment=False)
+    cfg["settings"].update(density=0.75)
     loaded = rules.load(_json.dumps(cfg))
     out = rules.render(loaded, 400)
     assert out.startswith("我自己写好的整段 Prompt") and "二、什么算互动题" not in out
-    assert "每分钟 0.5 道" in out and "不收录判断题" in out and rules.target_count(loaded, 400) == 4
+    assert "每分钟 0.75 道" in out and "可以收录" in out and rules.target_count(loaded, 400) == 5
     assert "raw" not in rules.builtin_cfg()
     bare = rules.render(rules.builtin_cfg(), bare=True)
     assert "一、基本设置" not in bare and "二、什么算互动题" in bare

@@ -48,9 +48,9 @@ def ensure_data_dir(path) -> None:
 
 
 def seed_default_rules(session) -> None:
-    """首次启动写入内置默认规则；当前默认仍为旧版纯文本时，追加结构化版本（旧版本保留可回滚）。"""
+    """首次启动写入内置默认规则；当前默认为旧版纯文本或未经修改的旧内置规则时，追加当前内置版本（旧版本保留可回滚）。"""
     cur = session.scalars(select(DefaultPrompt).order_by(DefaultPrompt.version.desc()).limit(1)).first()
-    if cur is None or not rules.is_structured(cur.content):
+    if cur is None or not rules.is_structured(cur.content) or rules.is_legacy_builtin(cur.content):
         session.add(DefaultPrompt(version=(cur.version + 1) if cur else 1, content=rules.builtin_text()))
         session.commit()
 

@@ -165,16 +165,11 @@ async function confirm() {
           <div class="field">
             <label>题量密度</label>
             <div class="row">
-              <input v-model.number="cfg.settings.density" type="range" min="0.2" max="3" step="0.1" style="width: 240px" :disabled="readOnly" />
-              <input v-model.number="cfg.settings.density" type="number" min="0.2" max="3" step="0.1" style="width: 70px" :disabled="readOnly" />
+              <input v-model.number="cfg.settings.density" type="range" min="0.65" max="3" step="0.1" style="width: 240px" :disabled="readOnly" />
+              <input v-model.number="cfg.settings.density" type="number" min="0.65" max="3" step="0.1" style="width: 70px" :disabled="readOnly" />
               <span class="muted small">题/分钟（10 分钟视频约 {{ Math.max(1, Math.ceil(10 * cfg.settings.density)) }} 题）</span>
             </div>
             <div class="muted small">整段平均值，质量优先；AI 不会为凑数收录不合格问题。</div>
-          </div>
-          <div class="field">
-            <label>判断题</label>
-            <label class="radio"><input v-model="cfg.settings.judgment" type="radio" :value="true" :disabled="readOnly" /> 收录（是/否、对/错、能/不能）</label>
-            <label class="radio"><input v-model="cfg.settings.judgment" type="radio" :value="false" :disabled="readOnly" /> 不收录</label>
           </div>
           <div class="field">
             <label>作答时间点放在</label>
@@ -257,7 +252,7 @@ async function confirm() {
             <li><b>输入格式</b>：带分段编号和时间的逐字稿；“&lt;停顿 Xs&gt;”为程序检测到的静音。</li>
             <li><b>输出格式</b>：时间点只输出“锚点分段 + 最后几个字”，由程序换算为 HH:MM:SS.mmm 并对齐到附近停顿。</li>
             <li><b>复核要求</b>：第 3 轮按业务规则、专家细则和示例逐题检查，并做反向核验。</li>
-            <li><b>程序校验</b>：原话匹配度、时间越界、锚点后停顿、相邻题过近、答案规范化（“C选项”→“C”）、空值；设置为不收录判断题时，判断题答案会被标记待复核。</li>
+            <li><b>程序校验</b>：原话匹配度、时间越界、锚点后停顿、相邻题过近、答案规范化（“C选项”→“C”）、空值。</li>
           </ol>
         </section>
       </div>

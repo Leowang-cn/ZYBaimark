@@ -183,10 +183,6 @@ def text_support(question: str, tr: dict, anchor_seg: str) -> float:
     return sum(b.size for b in sm.get_matching_blocks()) / len(q)
 
 
-def is_judgment_answer(ans: str) -> bool:
-    return re.sub(r"[。.！!\s]", "", ans) in rules_mod.JUDGMENT_ANSWERS
-
-
 def finalize(items: list[dict], tr: dict, silences, duration: float, rules_text: str = "") -> list[dict]:
     cfg = rules_mod.load(rules_text) if rules_text else ""
     rows = []
@@ -210,8 +206,6 @@ def finalize(items: list[dict], tr: dict, silences, duration: float, rules_text:
         ans = normalize_answer(str(it.get("answer") or ""))
         if not question or not ans:
             reasons.append("问题或答案为空")
-        if ans and not rules_mod.allow_judgment(cfg) and is_judgment_answer(ans):
-            reasons.append("规则设置为不收录判断题")
         rows.append({"time": round(t, 3), "question": question, "answer": ans, "review_reason": "；".join(reasons),
                      "evidence": str(it.get("answer_evidence") or "")})
     rows.sort(key=lambda r: r["time"])
